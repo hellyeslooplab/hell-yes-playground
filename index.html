@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Hell Yes Playground — Beta</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <h1>HELL YES PLAYGROUND — BETA</h1>
+
+    <section id="ui">
+      <label>
+        <span>Speed</span>
+        <input type="range" id="speed" min="0.2" max="4" step="0.1" value="1.5">
+      </label>
+
+      <label>
+        <span>Size</span>
+        <input type="range" id="size" min="100" max="400" step="10" value="250">
+      </label>
+
+      <label class="color-label">
+        <span>Color</span>
+        <input type="color" id="color" value="#ff0055">
+      </label>
+
+      <button id="save">Save PNG</button>
+    </section>
+
+    <section id="canvas-holder"></section>
+  </main>
+
+  <script src="sketch.js"></script>
+</body>
+</html>
