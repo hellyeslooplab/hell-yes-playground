@@ -1,24 +1,24 @@
-// Hell Yes Playground v2
+// Hell Yes Playground v2b
 // - Upload de imagem
 // - Crop automático 9:16 (centralizado)
 // - Presets de animação
-// - Export GIF 4s (16 fps)
+// - Export GIF 2s (12 fps, 24 frames) para ficar leve
 
 let canvas;
 let baseImg = null; // imagem já recortada em 9:16 para o canvas
 
 let imgInput, presetSelect, intensitySlider, playToggleBtn, exportBtn, statusEl;
 
-const LOOP_SECONDS = 4; // duração do loop
-const FPS = 16; // fps do GIF
+const LOOP_SECONDS = 2; // duração do loop
+const FPS = 12; // fps do GIF
 const NUM_FRAMES = LOOP_SECONDS * FPS;
 
 let isPlaying = true;
 let exporting = false;
 
 function setup() {
-  // Canvas em 9:16 (metade de 1080x1920 → 540x960)
-  const cnv = createCanvas(540, 960);
+  // Canvas em 9:16 (360x640 para export mais leve, mantendo proporção)
+  const cnv = createCanvas(360, 640);
   canvas = cnv;
   cnv.parent("canvas-holder");
 
@@ -155,8 +155,8 @@ function renderDrift(tNorm, intensity) {
   const t = tNorm * TWO_PI;
 
   const zoom = 1.05 + 0.08 * intensity * sin(t * 0.9);
-  const offsetX = sin(t * 1.1) * 30 * intensity;
-  const offsetY = cos(t * 0.7) * 40 * intensity;
+  const offsetX = sin(t * 1.1) * 25 * intensity;
+  const offsetY = cos(t * 0.7) * 30 * intensity;
 
   push();
   translate(width / 2 + offsetX, height / 2 + offsetY);
@@ -177,13 +177,13 @@ function renderDrift(tNorm, intensity) {
 
 // ---- Preset 2: Glitch Slices (faixas deslocadas) ----
 function renderSlices(tNorm, intensity) {
-  const slices = 32;
+  const slices = 28;
   const sliceH = height / slices;
 
   for (let i = 0; i < slices; i++) {
     const y = i * sliceH;
     const glitchPhase = tNorm * TWO_PI * 2 + i * 0.4;
-    const maxShift = 80 * intensity;
+    const maxShift = 60 * intensity;
     const shiftX = sin(glitchPhase) * maxShift;
 
     const sx = 0;
@@ -205,13 +205,13 @@ function renderSlices(tNorm, intensity) {
 
 // ---- Preset 3: Wave Melt (ondas verticais) ----
 function renderMelt(tNorm, intensity) {
-  const cols = 90;
+  const cols = 70;
   const colW = width / cols;
 
   for (let i = 0; i < cols; i++) {
     const x = i * colW;
     const wavePhase = tNorm * TWO_PI * 1.5 + i * 0.25;
-    const maxOffset = 60 * intensity;
+    const maxOffset = 50 * intensity;
     const offsetY = sin(wavePhase) * maxOffset;
 
     const sx = x;
@@ -239,13 +239,13 @@ function renderMelt(tNorm, intensity) {
 function drawVignette() {
   push();
   noFill();
-  const steps = 20;
+  const steps = 16;
   for (let i = 0; i < steps; i++) {
     const a = map(i, 0, steps - 1, 120, 0);
     stroke(0, a);
-    strokeWeight(40 + i * 4);
+    strokeWeight(30 + i * 3);
     rectMode(CENTER);
-    rect(width / 2, height / 2, width * 1.1, height * 1.1, 80);
+    rect(width / 2, height / 2, width * 1.1, height * 1.1, 60);
   }
   pop();
 }
@@ -258,7 +258,7 @@ function startExportGIF() {
   if (!baseImg || exporting) return;
 
   exporting = true;
-  statusEl.textContent = "Exporting GIF… this may take some seconds.";
+  statusEl.textContent = "Exporting GIF…";
   noLoop();
 
   const gif = new GIF({
@@ -268,14 +268,10 @@ function startExportGIF() {
       "https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js",
   });
 
-  for (let i = 0; i < NUM_FRAMES; i++) {
-    const tNorm = i / NUM_FRAMES;
-    renderScene(tNorm);
-    gif.addFrame(canvas.elt, {
-      copy: true,
-      delay: 1000 / FPS,
-    });
-  }
+  gif.on("progress", (p) => {
+    const percent = Math.round(p * 100);
+    statusEl.textContent = "Exporting GIF… " + percent + "%";
+  });
 
   gif.on("finished", (blob) => {
     const url = URL.createObjectURL(blob);
@@ -287,12 +283,28 @@ function startExportGIF() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    statusEl.textContent = "GIF exported. You can convert it to MP4 for Spotify.";
+    statusEl.textContent =
+      "GIF exported (2s, 360x640). You can convert it to MP4 for Spotify.";
     exporting = false;
     if (isPlaying) {
       loop();
     }
   });
+
+  gif.on("abort", () => {
+    statusEl.textContent = "GIF export aborted or failed.";
+    exporting = false;
+    if (isPlaying) loop();
+  });
+
+  for (let i = 0; i < NUM_FRAMES; i++) {
+    const tNorm = i / NUM_FRAMES;
+    renderScene(tNorm);
+    gif.addFrame(canvas.elt, {
+      copy: true,
+      delay: 1000 / FPS,
+    });
+  }
 
   gif.render();
 }
