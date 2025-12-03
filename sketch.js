@@ -1,23 +1,22 @@
-// Hell Yes Playground v2b
+// Hell Yes Playground v3 — TESTE 8 segundos
 // - Upload de imagem
 // - Crop automático 9:16 (centralizado)
 // - Presets de animação
-// - Export GIF 2s (12 fps, 24 frames) para ficar leve
+// - Export GIF 8s (12 fps = 96 frames)
 
 let canvas;
-let baseImg = null; // imagem já recortada em 9:16 para o canvas
+let baseImg = null;
 
 let imgInput, presetSelect, intensitySlider, playToggleBtn, exportBtn, statusEl;
 
-const LOOP_SECONDS = 2; // duração do loop
-const FPS = 12; // fps do GIF
-const NUM_FRAMES = LOOP_SECONDS * FPS;
+const LOOP_SECONDS = 8;     // agora 8 segundos
+const FPS = 12;             // mantém leve
+const NUM_FRAMES = LOOP_SECONDS * FPS; // 96 frames
 
 let isPlaying = true;
 let exporting = false;
 
 function setup() {
-  // Canvas em 9:16 (360x640 para export mais leve, mantendo proporção)
   const cnv = createCanvas(360, 640);
   canvas = cnv;
   cnv.parent("canvas-holder");
@@ -36,7 +35,6 @@ function setup() {
 
 function draw() {
   if (!baseImg) {
-    // placeholder
     background(10);
     fill(120);
     noStroke();
@@ -50,18 +48,11 @@ function draw() {
     return;
   }
 
-  if (!isPlaying) {
-    // quando pausado, não avança o tempo
-    return;
-  }
+  if (!isPlaying) return;
 
   const tNorm = ((millis() / 1000) % LOOP_SECONDS) / LOOP_SECONDS;
   renderScene(tNorm);
 }
-
-// -------------------------------------------
-// Upload + crop 9:16
-// -------------------------------------------
 
 function handleImageUpload(e) {
   const file = e.target.files[0];
@@ -76,28 +67,23 @@ function handleImageUpload(e) {
         statusEl.textContent =
           "Image loaded. Choose a preset, adjust intensity and export.";
       },
-      () => {
-        statusEl.textContent = "Error loading image.";
-      }
+      () => (statusEl.textContent = "Error loading image.")
     );
   };
   reader.readAsDataURL(file);
 }
 
 function cropToCanvasAspect(img) {
-  const targetAspect = width / height; // 9:16
+  const targetAspect = width / height;
   const srcAspect = img.width / img.height;
 
   let sx, sy, sWidth, sHeight;
-
   if (srcAspect > targetAspect) {
-    // imagem muito larga → corta lados
     sHeight = img.height;
     sWidth = sHeight * targetAspect;
     sx = (img.width - sWidth) / 2;
     sy = 0;
   } else {
-    // imagem muito alta → corta topo/base
     sWidth = img.width;
     sHeight = sWidth / targetAspect;
     sx = 0;
@@ -106,27 +92,15 @@ function cropToCanvasAspect(img) {
 
   const gfx = createGraphics(width, height);
   gfx.image(img, 0, 0, width, height, sx, sy, sWidth, sHeight);
-
   return gfx;
 }
-
-// -------------------------------------------
-// Play / Pause
-// -------------------------------------------
 
 function togglePlay() {
   isPlaying = !isPlaying;
   playToggleBtn.textContent = isPlaying ? "Pause" : "Play";
-  if (isPlaying) {
-    loop();
-  } else {
-    noLoop();
-  }
+  if (isPlaying) loop();
+  else noLoop();
 }
-
-// -------------------------------------------
-// Render da cena em função de tNorm (0..1)
-// -------------------------------------------
 
 function renderScene(tNorm) {
   const preset = presetSelect.value;
@@ -136,24 +110,17 @@ function renderScene(tNorm) {
   imageMode(CORNER);
   noTint();
 
-  if (preset === "drift") {
-    renderDrift(tNorm, intensity);
-  } else if (preset === "slices") {
-    renderSlices(tNorm, intensity);
-  } else if (preset === "melt") {
-    renderMelt(tNorm, intensity);
-  } else {
-    image(baseImg, 0, 0, width, height);
-  }
+  if (preset === "drift") renderDrift(tNorm, intensity);
+  else if (preset === "slices") renderSlices(tNorm, intensity);
+  else if (preset === "melt") renderMelt(tNorm, intensity);
+  else image(baseImg, 0, 0, width, height);
 
-  // leve vinheta
   drawVignette();
 }
 
-// ---- Preset 1: Drift Orbit (zoom + deslocamento suave) ----
+// -------- Drift --------
 function renderDrift(tNorm, intensity) {
   const t = tNorm * TWO_PI;
-
   const zoom = 1.05 + 0.08 * intensity * sin(t * 0.9);
   const offsetX = sin(t * 1.1) * 25 * intensity;
   const offsetY = cos(t * 0.7) * 30 * intensity;
@@ -165,7 +132,6 @@ function renderDrift(tNorm, intensity) {
   image(baseImg, 0, 0, width, height);
   pop();
 
-  // eco escuro por baixo
   push();
   translate(width / 2 - offsetX * 0.5, height / 2 - offsetY * 0.5);
   scale(zoom * 0.95);
@@ -175,7 +141,7 @@ function renderDrift(tNorm, intensity) {
   pop();
 }
 
-// ---- Preset 2: Glitch Slices (faixas deslocadas) ----
+// -------- Slices --------
 function renderSlices(tNorm, intensity) {
   const slices = 28;
   const sliceH = height / slices;
@@ -186,24 +152,15 @@ function renderSlices(tNorm, intensity) {
     const maxShift = 60 * intensity;
     const shiftX = sin(glitchPhase) * maxShift;
 
-    const sx = 0;
-    const sy = y;
-    const sw = width;
-    const sh = sliceH;
-
-    const dx = shiftX;
-    const dy = y;
-
-    image(baseImg, dx, dy, sw, sh, sx, sy, sw, sh);
+    image(baseImg, shiftX, y, width, sliceH, 0, y, width, sliceH);
   }
 
-  // overlay leve para recompor
   tint(255, 30);
   image(baseImg, 0, 0, width, height);
   noTint();
 }
 
-// ---- Preset 3: Wave Melt (ondas verticais) ----
+// -------- Melt --------
 function renderMelt(tNorm, intensity) {
   const cols = 70;
   const colW = width / cols;
@@ -214,18 +171,9 @@ function renderMelt(tNorm, intensity) {
     const maxOffset = 50 * intensity;
     const offsetY = sin(wavePhase) * maxOffset;
 
-    const sx = x;
-    const sy = 0;
-    const sw = colW;
-    const sh = height;
-
-    const dx = x;
-    const dy = offsetY;
-
-    image(baseImg, dx, dy, sw, sh, sx, sy, sw, sh);
+    image(baseImg, x, offsetY, colW, height, x, 0, colW, height);
   }
 
-  // brilho extra
   push();
   blendMode(ADD);
   tint(255, 40);
@@ -235,7 +183,7 @@ function renderMelt(tNorm, intensity) {
   blendMode(BLEND);
 }
 
-// ---- Vinheta simples ----
+// -------- Vignette --------
 function drawVignette() {
   push();
   noFill();
@@ -250,10 +198,7 @@ function drawVignette() {
   pop();
 }
 
-// -------------------------------------------
-// Export GIF
-// -------------------------------------------
-
+// -------- Export GIF --------
 function startExportGIF() {
   if (!baseImg || exporting) return;
 
@@ -261,16 +206,14 @@ function startExportGIF() {
   statusEl.textContent = "Exporting GIF…";
   noLoop();
 
-const gif = new GIF({
-  workers: 1,          // 1 worker já é suficiente
-  quality: 10,
-  workerScript: "gif.worker.js", // arquivo local, mesmo domínio
-});
-
+  const gif = new GIF({
+    workers: 1,
+    quality: 10,
+    workerScript: "gif.worker.js",
+  });
 
   gif.on("progress", (p) => {
-    const percent = Math.round(p * 100);
-    statusEl.textContent = "Exporting GIF… " + percent + "%";
+    statusEl.textContent = "Exporting GIF… " + Math.round(p * 100) + "%";
   });
 
   gif.on("finished", (blob) => {
@@ -278,21 +221,10 @@ const gif = new GIF({
     const a = document.createElement("a");
     a.href = url;
     a.download = "hell_yes_canvas.gif";
-    document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    statusEl.textContent =
-      "GIF exported (2s, 360x640). You can convert it to MP4 for Spotify.";
-    exporting = false;
-    if (isPlaying) {
-      loop();
-    }
-  });
-
-  gif.on("abort", () => {
-    statusEl.textContent = "GIF export aborted or failed.";
+    statusEl.textContent = "GIF exported (8s). Convert to MP4 for Spotify.";
     exporting = false;
     if (isPlaying) loop();
   });
@@ -300,10 +232,7 @@ const gif = new GIF({
   for (let i = 0; i < NUM_FRAMES; i++) {
     const tNorm = i / NUM_FRAMES;
     renderScene(tNorm);
-    gif.addFrame(canvas.elt, {
-      copy: true,
-      delay: 1000 / FPS,
-    });
+    gif.addFrame(canvas.elt, { copy: true, delay: 1000 / FPS });
   }
 
   gif.render();
