@@ -261,12 +261,12 @@ function startExportGIF() {
   statusEl.textContent = "Exporting GIF…";
   noLoop();
 
-  const gif = new GIF({
-    workers: 2,
-    quality: 10,
-    workerScript:
-      "https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js",
-  });
+const gif = new GIF({
+  workers: 1,          // 1 worker já é suficiente
+  quality: 10,
+  workerScript: "gif.worker.js", // arquivo local, mesmo domínio
+});
+
 
   gif.on("progress", (p) => {
     const percent = Math.round(p * 100);
