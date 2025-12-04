@@ -1,8 +1,8 @@
-// Hell Yes Playground v4 — 8s, 540x960
+// Hell Yes Playground v5 — 8s, 24 fps, 540x960
 // - Upload de imagem
 // - Crop automático 9:16 (centralizado)
 // - Presets de animação
-// - Export GIF 8s (12 fps = 96 frames) com gif.js
+// - Export GIF 8s (24 fps = 192 frames) com gif.js
 // - Export Video 8s usando MediaRecorder (MP4 se suportar, senão WEBM)
 
 let canvas;
@@ -17,8 +17,8 @@ let imgInput,
   statusEl;
 
 const LOOP_SECONDS = 8;
-const FPS = 12;
-const NUM_FRAMES = LOOP_SECONDS * FPS;
+const FPS = 24;                // agora 24 fps
+const NUM_FRAMES = LOOP_SECONDS * FPS; // 192 frames
 
 let isPlaying = true;
 let exportingGif = false;
@@ -32,8 +32,7 @@ let recordedChunks = [];
 // setup
 // ------------------------------------------------------
 function setup() {
-  // canvas 9:16, um pouco menor que 1080x1920 pra não matar o navegador
-  const cnv = createCanvas(540, 960);
+  const cnv = createCanvas(540, 960); // 9:16
   canvas = cnv;
   cnv.parent("canvas-holder");
 
@@ -228,7 +227,7 @@ function drawVignette() {
 }
 
 // ------------------------------------------------------
-// Export GIF (8s) — igual antes
+// Export GIF (8s, 24 fps)
 // ------------------------------------------------------
 function startExportGIF() {
   if (!baseImg || exportingGif || recordingVideo) return;
@@ -240,11 +239,12 @@ function startExportGIF() {
   const gif = new GIF({
     workers: 1,
     quality: 10,
-    workerScript: "gif.worker.js", // arquivo local
+    workerScript: "gif.worker.js",
   });
 
   gif.on("progress", (p) => {
-    statusEl.textContent = "Exporting GIF… " + Math.round(p * 100) + "%";
+    statusEl.textContent =
+      "Exporting GIF… " + Math.round(p * 100) + "% (8s, 24 fps)";
   });
 
   gif.on("finished", (blob) => {
@@ -256,7 +256,7 @@ function startExportGIF() {
     URL.revokeObjectURL(url);
 
     statusEl.textContent =
-      "GIF exported (8s, 540x960). You can convert it to MP4 for Spotify.";
+      "GIF exported (8s, 540x960, 24 fps). You can convert it to MP4 for Spotify.";
     exportingGif = false;
     if (isPlaying && !recordingVideo) loop();
   });
@@ -272,7 +272,7 @@ function startExportGIF() {
     renderScene(tNorm);
     gif.addFrame(canvas.elt, {
       copy: true,
-      delay: 1000 / FPS,
+      delay: 1000 / FPS, // 24 fps
     });
   }
 
@@ -280,7 +280,7 @@ function startExportGIF() {
 }
 
 // ------------------------------------------------------
-// Export VIDEO (8s) com MediaRecorder
+// Export VIDEO (8s, 24 fps) com MediaRecorder
 // ------------------------------------------------------
 function startExportVideo() {
   if (!baseImg || recordingVideo || exportingGif) return;
@@ -291,7 +291,6 @@ function startExportVideo() {
     return;
   }
 
-  // tenta MP4 primeiro
   let mimeType = "";
   if (MediaRecorder.isTypeSupported("video/mp4")) {
     mimeType = "video/mp4";
@@ -305,6 +304,7 @@ function startExportVideo() {
     return;
   }
 
+  // captura do canvas a 24 fps
   const stream = canvas.elt.captureStream(FPS);
 
   try {
@@ -317,7 +317,7 @@ function startExportVideo() {
 
   recordedChunks = [];
   recordingVideo = true;
-  statusEl.textContent = "Recording video… 8 seconds.";
+  statusEl.textContent = "Recording video… 8 seconds at 24 fps.";
 
   mediaRecorder.ondataavailable = (e) => {
     if (e.data && e.data.size > 0) {
@@ -336,15 +336,14 @@ function startExportVideo() {
     URL.revokeObjectURL(url);
 
     statusEl.textContent =
-      "Video exported (8s, " +
+      "Video exported (8s, 540x960, 24 fps, " +
       ext.toUpperCase() +
-      "). For Spotify Canvas, prefer MP4.";
+      "). Perfect for Spotify Canvas.";
     recordingVideo = false;
   };
 
   mediaRecorder.start();
 
-  // garante que vamos gravar exatamente 8 segundos
   setTimeout(() => {
     if (mediaRecorder && mediaRecorder.state === "recording") {
       mediaRecorder.stop();
