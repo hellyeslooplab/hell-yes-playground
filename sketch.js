@@ -1,9 +1,8 @@
-// Hell Yes Playground v5 — 8s, 24 fps, 540x960
-// - Upload de imagem
-// - Crop automático 9:16 (centralizado)
-// - Presets de animação
-// - Export GIF 8s (24 fps = 192 frames) com gif.js
-// - Export Video 8s usando MediaRecorder (MP4 se suportar, senão WEBM)
+// Hell Yes Playground — MP4 only
+// - 8s loop, 24 fps, canvas 540x960 (9:16)
+// - Upload de imagem + crop automático 9:16
+// - 3 presets básicos (vamos evoluir depois)
+// - Exporta vídeo 8s via MediaRecorder (MP4 se possível, senão WEBM)
 
 let canvas;
 let baseImg = null;
@@ -12,16 +11,13 @@ let imgInput,
   presetSelect,
   intensitySlider,
   playToggleBtn,
-  exportGifBtn,
   exportVideoBtn,
   statusEl;
 
 const LOOP_SECONDS = 8;
-const FPS = 24;                // agora 24 fps
-const NUM_FRAMES = LOOP_SECONDS * FPS; // 192 frames
+const FPS = 24; // 24 fps para suavidade
 
 let isPlaying = true;
-let exportingGif = false;
 
 // gravação de vídeo
 let recordingVideo = false;
@@ -40,13 +36,11 @@ function setup() {
   presetSelect = document.getElementById("preset");
   intensitySlider = document.getElementById("intensity");
   playToggleBtn = document.getElementById("play-toggle");
-  exportGifBtn = document.getElementById("export");
   exportVideoBtn = document.getElementById("export-video");
   statusEl = document.getElementById("status");
 
   imgInput.addEventListener("change", handleImageUpload);
   playToggleBtn.addEventListener("click", togglePlay);
-  exportGifBtn.addEventListener("click", startExportGIF);
   exportVideoBtn.addEventListener("click", startExportVideo);
 }
 
@@ -227,63 +221,10 @@ function drawVignette() {
 }
 
 // ------------------------------------------------------
-// Export GIF (8s, 24 fps)
-// ------------------------------------------------------
-function startExportGIF() {
-  if (!baseImg || exportingGif || recordingVideo) return;
-
-  exportingGif = true;
-  statusEl.textContent = "Exporting GIF…";
-  noLoop();
-
-  const gif = new GIF({
-    workers: 1,
-    quality: 10,
-    workerScript: "gif.worker.js",
-  });
-
-  gif.on("progress", (p) => {
-    statusEl.textContent =
-      "Exporting GIF… " + Math.round(p * 100) + "% (8s, 24 fps)";
-  });
-
-  gif.on("finished", (blob) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "hell_yes_canvas.gif";
-    a.click();
-    URL.revokeObjectURL(url);
-
-    statusEl.textContent =
-      "GIF exported (8s, 540x960, 24 fps). You can convert it to MP4 for Spotify.";
-    exportingGif = false;
-    if (isPlaying && !recordingVideo) loop();
-  });
-
-  gif.on("abort", () => {
-    statusEl.textContent = "GIF export aborted or failed.";
-    exportingGif = false;
-    if (isPlaying && !recordingVideo) loop();
-  });
-
-  for (let i = 0; i < NUM_FRAMES; i++) {
-    const tNorm = i / NUM_FRAMES;
-    renderScene(tNorm);
-    gif.addFrame(canvas.elt, {
-      copy: true,
-      delay: 1000 / FPS, // 24 fps
-    });
-  }
-
-  gif.render();
-}
-
-// ------------------------------------------------------
-// Export VIDEO (8s, 24 fps) com MediaRecorder
+// Export VIDEO (8s, 24 fps, vertical 9:16)
 // ------------------------------------------------------
 function startExportVideo() {
-  if (!baseImg || recordingVideo || exportingGif) return;
+  if (!baseImg || recordingVideo) return;
 
   if (typeof MediaRecorder === "undefined") {
     statusEl.textContent =
@@ -304,7 +245,6 @@ function startExportVideo() {
     return;
   }
 
-  // captura do canvas a 24 fps
   const stream = canvas.elt.captureStream(FPS);
 
   try {
@@ -336,9 +276,9 @@ function startExportVideo() {
     URL.revokeObjectURL(url);
 
     statusEl.textContent =
-      "Video exported (8s, 540x960, 24 fps, " +
+      "Video exported (8s, 24 fps, vertical 9:16 " +
       ext.toUpperCase() +
-      "). Perfect for Spotify Canvas.";
+      "). Ready for Spotify Canvas.";
     recordingVideo = false;
   };
 
