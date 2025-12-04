@@ -1,4 +1,4 @@
-// Hell Yes Playground v3 — TESTE 8 segundos
+// Hell Yes Playground v3 — 8s, resolução maior (540x960)
 // - Upload de imagem
 // - Crop automático 9:16 (centralizado)
 // - Presets de animação
@@ -9,15 +9,16 @@ let baseImg = null;
 
 let imgInput, presetSelect, intensitySlider, playToggleBtn, exportBtn, statusEl;
 
-const LOOP_SECONDS = 8;     // agora 8 segundos
-const FPS = 12;             // mantém leve
+const LOOP_SECONDS = 8;     // 8 segundos
+const FPS = 12;             // 12 fps
 const NUM_FRAMES = LOOP_SECONDS * FPS; // 96 frames
 
 let isPlaying = true;
 let exporting = false;
 
 function setup() {
-  const cnv = createCanvas(360, 640);
+  // canvas maior, mesma proporção 9:16
+  const cnv = createCanvas(540, 960);
   canvas = cnv;
   cnv.parent("canvas-holder");
 
@@ -54,6 +55,10 @@ function draw() {
   renderScene(tNorm);
 }
 
+// -------------------------------------------
+// Upload + crop 9:16
+// -------------------------------------------
+
 function handleImageUpload(e) {
   const file = e.target.files[0];
   if (!file) return;
@@ -79,11 +84,13 @@ function cropToCanvasAspect(img) {
 
   let sx, sy, sWidth, sHeight;
   if (srcAspect > targetAspect) {
+    // imagem mais larga → corta lados
     sHeight = img.height;
     sWidth = sHeight * targetAspect;
     sx = (img.width - sWidth) / 2;
     sy = 0;
   } else {
+    // imagem mais alta → corta topo/base
     sWidth = img.width;
     sHeight = sWidth / targetAspect;
     sx = 0;
@@ -95,12 +102,20 @@ function cropToCanvasAspect(img) {
   return gfx;
 }
 
+// -------------------------------------------
+// Play / Pause
+// -------------------------------------------
+
 function togglePlay() {
   isPlaying = !isPlaying;
   playToggleBtn.textContent = isPlaying ? "Pause" : "Play";
   if (isPlaying) loop();
   else noLoop();
 }
+
+// -------------------------------------------
+// Render da cena em função de tNorm (0..1)
+// -------------------------------------------
 
 function renderScene(tNorm) {
   const preset = presetSelect.value;
@@ -118,7 +133,7 @@ function renderScene(tNorm) {
   drawVignette();
 }
 
-// -------- Drift --------
+// -------- Preset 1: Drift Orbit --------
 function renderDrift(tNorm, intensity) {
   const t = tNorm * TWO_PI;
   const zoom = 1.05 + 0.08 * intensity * sin(t * 0.9);
@@ -141,7 +156,7 @@ function renderDrift(tNorm, intensity) {
   pop();
 }
 
-// -------- Slices --------
+// -------- Preset 2: Glitch Slices --------
 function renderSlices(tNorm, intensity) {
   const slices = 28;
   const sliceH = height / slices;
@@ -160,7 +175,7 @@ function renderSlices(tNorm, intensity) {
   noTint();
 }
 
-// -------- Melt --------
+// -------- Preset 3: Wave Melt --------
 function renderMelt(tNorm, intensity) {
   const cols = 70;
   const colW = width / cols;
@@ -183,7 +198,7 @@ function renderMelt(tNorm, intensity) {
   blendMode(BLEND);
 }
 
-// -------- Vignette --------
+// -------- Vinheta --------
 function drawVignette() {
   push();
   noFill();
@@ -198,7 +213,10 @@ function drawVignette() {
   pop();
 }
 
-// -------- Export GIF --------
+// -------------------------------------------
+// Export GIF (8s)
+// -------------------------------------------
+
 function startExportGIF() {
   if (!baseImg || exporting) return;
 
@@ -209,7 +227,7 @@ function startExportGIF() {
   const gif = new GIF({
     workers: 1,
     quality: 10,
-    workerScript: "gif.worker.js",
+    workerScript: "gif.worker.js", // local
   });
 
   gif.on("progress", (p) => {
@@ -224,7 +242,14 @@ function startExportGIF() {
     a.click();
     URL.revokeObjectURL(url);
 
-    statusEl.textContent = "GIF exported (8s). Convert to MP4 for Spotify.";
+    statusEl.textContent =
+      "GIF exported (8s, 540x960). Convert it to MP4 for Spotify.";
+    exporting = false;
+    if (isPlaying) loop();
+  });
+
+  gif.on("abort", () => {
+    statusEl.textContent = "GIF export aborted or failed.";
     exporting = false;
     if (isPlaying) loop();
   });
@@ -232,7 +257,10 @@ function startExportGIF() {
   for (let i = 0; i < NUM_FRAMES; i++) {
     const tNorm = i / NUM_FRAMES;
     renderScene(tNorm);
-    gif.addFrame(canvas.elt, { copy: true, delay: 1000 / FPS });
+    gif.addFrame(canvas.elt, {
+      copy: true,
+      delay: 1000 / FPS,
+    });
   }
 
   gif.render();
