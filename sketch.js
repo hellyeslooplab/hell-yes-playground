@@ -1,23 +1,38 @@
-// Hell Yes Playground v3 — 8s, resolução maior (540x960)
+// Hell Yes Playground v4 — 8s, 540x960
 // - Upload de imagem
 // - Crop automático 9:16 (centralizado)
 // - Presets de animação
-// - Export GIF 8s (12 fps = 96 frames)
+// - Export GIF 8s (12 fps = 96 frames) com gif.js
+// - Export Video 8s usando MediaRecorder (MP4 se suportar, senão WEBM)
 
 let canvas;
 let baseImg = null;
 
-let imgInput, presetSelect, intensitySlider, playToggleBtn, exportBtn, statusEl;
+let imgInput,
+  presetSelect,
+  intensitySlider,
+  playToggleBtn,
+  exportGifBtn,
+  exportVideoBtn,
+  statusEl;
 
-const LOOP_SECONDS = 8;     // 8 segundos
-const FPS = 12;             // 12 fps
-const NUM_FRAMES = LOOP_SECONDS * FPS; // 96 frames
+const LOOP_SECONDS = 8;
+const FPS = 12;
+const NUM_FRAMES = LOOP_SECONDS * FPS;
 
 let isPlaying = true;
-let exporting = false;
+let exportingGif = false;
 
+// gravação de vídeo
+let recordingVideo = false;
+let mediaRecorder = null;
+let recordedChunks = [];
+
+// ------------------------------------------------------
+// setup
+// ------------------------------------------------------
 function setup() {
-  // canvas maior, mesma proporção 9:16
+  // canvas 9:16, um pouco menor que 1080x1920 pra não matar o navegador
   const cnv = createCanvas(540, 960);
   canvas = cnv;
   cnv.parent("canvas-holder");
@@ -26,12 +41,14 @@ function setup() {
   presetSelect = document.getElementById("preset");
   intensitySlider = document.getElementById("intensity");
   playToggleBtn = document.getElementById("play-toggle");
-  exportBtn = document.getElementById("export");
+  exportGifBtn = document.getElementById("export");
+  exportVideoBtn = document.getElementById("export-video");
   statusEl = document.getElementById("status");
 
   imgInput.addEventListener("change", handleImageUpload);
   playToggleBtn.addEventListener("click", togglePlay);
-  exportBtn.addEventListener("click", startExportGIF);
+  exportGifBtn.addEventListener("click", startExportGIF);
+  exportVideoBtn.addEventListener("click", startExportVideo);
 }
 
 function draw() {
@@ -55,10 +72,9 @@ function draw() {
   renderScene(tNorm);
 }
 
-// -------------------------------------------
+// ------------------------------------------------------
 // Upload + crop 9:16
-// -------------------------------------------
-
+// ------------------------------------------------------
 function handleImageUpload(e) {
   const file = e.target.files[0];
   if (!file) return;
@@ -102,10 +118,9 @@ function cropToCanvasAspect(img) {
   return gfx;
 }
 
-// -------------------------------------------
+// ------------------------------------------------------
 // Play / Pause
-// -------------------------------------------
-
+// ------------------------------------------------------
 function togglePlay() {
   isPlaying = !isPlaying;
   playToggleBtn.textContent = isPlaying ? "Pause" : "Play";
@@ -113,10 +128,9 @@ function togglePlay() {
   else noLoop();
 }
 
-// -------------------------------------------
+// ------------------------------------------------------
 // Render da cena em função de tNorm (0..1)
-// -------------------------------------------
-
+// ------------------------------------------------------
 function renderScene(tNorm) {
   const preset = presetSelect.value;
   const intensity = parseFloat(intensitySlider.value || "0.6");
@@ -213,21 +227,20 @@ function drawVignette() {
   pop();
 }
 
-// -------------------------------------------
-// Export GIF (8s)
-// -------------------------------------------
-
+// ------------------------------------------------------
+// Export GIF (8s) — igual antes
+// ------------------------------------------------------
 function startExportGIF() {
-  if (!baseImg || exporting) return;
+  if (!baseImg || exportingGif || recordingVideo) return;
 
-  exporting = true;
+  exportingGif = true;
   statusEl.textContent = "Exporting GIF…";
   noLoop();
 
   const gif = new GIF({
     workers: 1,
     quality: 10,
-    workerScript: "gif.worker.js", // local
+    workerScript: "gif.worker.js", // arquivo local
   });
 
   gif.on("progress", (p) => {
@@ -243,15 +256,15 @@ function startExportGIF() {
     URL.revokeObjectURL(url);
 
     statusEl.textContent =
-      "GIF exported (8s, 540x960). Convert it to MP4 for Spotify.";
-    exporting = false;
-    if (isPlaying) loop();
+      "GIF exported (8s, 540x960). You can convert it to MP4 for Spotify.";
+    exportingGif = false;
+    if (isPlaying && !recordingVideo) loop();
   });
 
   gif.on("abort", () => {
     statusEl.textContent = "GIF export aborted or failed.";
-    exporting = false;
-    if (isPlaying) loop();
+    exportingGif = false;
+    if (isPlaying && !recordingVideo) loop();
   });
 
   for (let i = 0; i < NUM_FRAMES; i++) {
@@ -264,4 +277,77 @@ function startExportGIF() {
   }
 
   gif.render();
+}
+
+// ------------------------------------------------------
+// Export VIDEO (8s) com MediaRecorder
+// ------------------------------------------------------
+function startExportVideo() {
+  if (!baseImg || recordingVideo || exportingGif) return;
+
+  if (typeof MediaRecorder === "undefined") {
+    statusEl.textContent =
+      "Video export not supported in this browser (no MediaRecorder).";
+    return;
+  }
+
+  // tenta MP4 primeiro
+  let mimeType = "";
+  if (MediaRecorder.isTypeSupported("video/mp4")) {
+    mimeType = "video/mp4";
+  } else if (MediaRecorder.isTypeSupported("video/webm;codecs=vp9")) {
+    mimeType = "video/webm;codecs=vp9";
+  } else if (MediaRecorder.isTypeSupported("video/webm")) {
+    mimeType = "video/webm";
+  } else {
+    statusEl.textContent =
+      "Video export not supported (no compatible codecs found).";
+    return;
+  }
+
+  const stream = canvas.elt.captureStream(FPS);
+
+  try {
+    mediaRecorder = new MediaRecorder(stream, { mimeType });
+  } catch (err) {
+    console.error("MediaRecorder init error:", err);
+    statusEl.textContent = "Could not start video export.";
+    return;
+  }
+
+  recordedChunks = [];
+  recordingVideo = true;
+  statusEl.textContent = "Recording video… 8 seconds.";
+
+  mediaRecorder.ondataavailable = (e) => {
+    if (e.data && e.data.size > 0) {
+      recordedChunks.push(e.data);
+    }
+  };
+
+  mediaRecorder.onstop = () => {
+    const blob = new Blob(recordedChunks, { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const ext = mimeType.startsWith("video/mp4") ? "mp4" : "webm";
+    a.href = url;
+    a.download = "hell_yes_canvas." + ext;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    statusEl.textContent =
+      "Video exported (8s, " +
+      ext.toUpperCase() +
+      "). For Spotify Canvas, prefer MP4.";
+    recordingVideo = false;
+  };
+
+  mediaRecorder.start();
+
+  // garante que vamos gravar exatamente 8 segundos
+  setTimeout(() => {
+    if (mediaRecorder && mediaRecorder.state === "recording") {
+      mediaRecorder.stop();
+    }
+  }, LOOP_SECONDS * 1000);
 }
