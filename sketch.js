@@ -1,7 +1,10 @@
 // Hell Yes Playground — MP4 only
 // - 8s loop, 24 fps, canvas 540x960 (9:16)
 // - Upload de imagem + crop automático 9:16
-// - 3 presets básicos (vamos evoluir depois)
+// - Presets:
+//     1) Orbital Overdrive (radical, multi-ecos, rotação/zoom forte)
+//     2) Signal Splitter (faixas glitchadas)
+//     3) Neon Melt (ondas verticais)
 // - Exporta vídeo 8s via MediaRecorder (MP4 se possível, senão WEBM)
 
 let canvas;
@@ -132,45 +135,128 @@ function renderScene(tNorm) {
   imageMode(CORNER);
   noTint();
 
-  if (preset === "drift") renderDrift(tNorm, intensity);
-  else if (preset === "slices") renderSlices(tNorm, intensity);
-  else if (preset === "melt") renderMelt(tNorm, intensity);
-  else image(baseImg, 0, 0, width, height);
+  if (preset === "drift") {
+    // Orbital Overdrive
+    renderOrbitalOverdrive(tNorm, intensity);
+  } else if (preset === "slices") {
+    // Signal Splitter
+    renderSlices(tNorm, intensity);
+  } else if (preset === "melt") {
+    // Neon Melt
+    renderMelt(tNorm, intensity);
+  } else {
+    image(baseImg, 0, 0, width, height);
+  }
 
   drawVignette();
 }
 
-// -------- Preset 1: Drift Orbit --------
-function renderDrift(tNorm, intensity) {
+// ------------------------------------------------------
+// PRESET 1 — ORBITAL OVERDRIVE
+// radical, com múltiplos ecos, rotação, zoom e "pulse" de luz
+// tudo baseado em harmônicos inteiros de 2π para loop perfeito.
+// ------------------------------------------------------
+function renderOrbitalOverdrive(tNorm, intensity) {
+  // t percorre 0..2π em 8s; todos os movimentos usam múltiplos inteiros de t
   const t = tNorm * TWO_PI;
-  const zoom = 1.05 + 0.08 * intensity * sin(t * 0.9);
-  const offsetX = sin(t * 1.1) * 25 * intensity;
-  const offsetY = cos(t * 0.7) * 30 * intensity;
 
-  push();
-  translate(width / 2 + offsetX, height / 2 + offsetY);
-  scale(zoom);
+  // zoom oscila em harmônicos 1 e 2 de t
+  const zoomBase =
+    1.15 +
+    0.20 * intensity * sin(t * 1.0) +
+    0.10 * intensity * sin(t * 2.0);
+
+  // rotação pulsando com harmônico 3
+  const angleBase = 0.35 * intensity * sin(t * 3.0);
+
+  // órbita do "centro" usando harmônicos 1 e 2
+  const orbitRadius = 40 * intensity;
+  const cxOffset = cos(t * 1.0) * orbitRadius;
+  const cyOffset = sin(t * 2.0) * orbitRadius;
+
   imageMode(CENTER);
+
+  // camada base (mais limpa)
+  push();
+  translate(width / 2 + cxOffset, height / 2 + cyOffset);
+  rotate(angleBase);
+  scale(zoomBase);
   image(baseImg, 0, 0, width, height);
   pop();
 
+  // ecos coloridos com mistura aditiva
   push();
-  translate(width / 2 - offsetX * 0.5, height / 2 - offsetY * 0.5);
-  scale(zoom * 0.95);
-  tint(255, 40);
-  imageMode(CENTER);
-  image(baseImg, 0, 0, width, height);
-  pop();
+  blendMode(ADD);
+
+  const layers = 3;
+  for (let i = 0; i < layers; i++) {
+    const li = i + 1;
+    const layerScale = zoomBase * (1.0 + 0.08 * li);
+    const layerAngle = angleBase * (1.0 + 0.6 * li);
+
+    // deslocamento extra em espiral (harmônicos inteiros)
+    const r = orbitRadius * (0.8 + 0.4 * li);
+    const lx = cos(t * (1 + li)) * r;
+    const ly = sin(t * (2 + li)) * r;
+
+    // variação de cor oscilando em t (sem random)
+    const hueShift = 0.5 + 0.5 * sin(t * 2.0 + li);
+    const rCol = 255;
+    const gCol = 80 + 120 * hueShift;
+    const bCol = 180 + 70 * (1.0 - hueShift);
+    const alpha = 90 - li * 20; // ecos mais distantes mais fracos
+
+    push();
+    translate(width / 2 + lx, height / 2 + ly);
+    rotate(layerAngle);
+    scale(layerScale);
+    tint(rCol, gCol, bCol, alpha);
+    image(baseImg, 0, 0, width, height);
+    pop();
+  }
+
+  pop(); // blendMode
+
+  // pequenas faixas diagonais para dar sensação de streak / motion blur
+  const bands = 10;
+  const bandH = height / bands;
+  for (let i = 0; i < bands; i++) {
+    const y = i * bandH;
+    const phase = t * 4.0 + i; // harmônico 4 de t
+    const shiftX = 20 * intensity * sin(phase);
+
+    push();
+    blendMode(ADD);
+    tint(255, 255 * 0.25); // bem sutil
+    image(
+      baseImg,
+      shiftX,
+      y,
+      width,
+      bandH,
+      0,
+      y,
+      width,
+      bandH
+    );
+    pop();
+  }
+
+  imageMode(CORNER);
 }
 
-// -------- Preset 2: Glitch Slices --------
+// ------------------------------------------------------
+// PRESET 2 — SIGNAL SPLITTER (antigo slices, leve ajuste depois)
+// ------------------------------------------------------
 function renderSlices(tNorm, intensity) {
   const slices = 28;
   const sliceH = height / slices;
 
+  const t = tNorm * TWO_PI;
+
   for (let i = 0; i < slices; i++) {
     const y = i * sliceH;
-    const glitchPhase = tNorm * TWO_PI * 2 + i * 0.4;
+    const glitchPhase = t * 2.0 + i * 0.4; // harmônico 2 de t
     const maxShift = 60 * intensity;
     const shiftX = sin(glitchPhase) * maxShift;
 
@@ -182,14 +268,17 @@ function renderSlices(tNorm, intensity) {
   noTint();
 }
 
-// -------- Preset 3: Wave Melt --------
+// ------------------------------------------------------
+// PRESET 3 — NEON MELT (ondas verticais)
+// ------------------------------------------------------
 function renderMelt(tNorm, intensity) {
   const cols = 70;
   const colW = width / cols;
+  const t = tNorm * TWO_PI;
 
   for (let i = 0; i < cols; i++) {
     const x = i * colW;
-    const wavePhase = tNorm * TWO_PI * 1.5 + i * 0.25;
+    const wavePhase = t * 1.5 + i * 0.25; // harmônico 1.5 ainda fecha o loop
     const maxOffset = 50 * intensity;
     const offsetY = sin(wavePhase) * maxOffset;
 
