@@ -1,7 +1,7 @@
 // Hell Yes Playground — MP4 only, loop fechado
-// - 8s conceituais (NUM_FRAMES = 8 * 24)
-// - 24 fps, canvas 540x960 (9:16)
-// - Fase discreta por frame (framePhase) → sem jump
+// - 8s conceituais (LOOP_SECONDS = 8)
+// - Preview a 24 fps (conceitual), canvas 540x960 (9:16)
+// - Na exportação, usa o FPS real do browser para fechar ~8s
 // - Presets:
 //   drift  → Preset 1: fatias curvas estáticas (reinterpretation)
 //   slices → Preset 2: Signal Splitter (animado, harmônico 2)
@@ -19,19 +19,23 @@ let imgInput,
   statusEl;
 
 const LOOP_SECONDS = 8;
-const FPS = 24;
-const NUM_FRAMES = LOOP_SECONDS * FPS; // 192 frames
+
+// FPS desejado só para preview (não é o FPS real da gravação)
+const PREVIEW_FPS = 24;
+const PREVIEW_FRAME_COUNT = LOOP_SECONDS * PREVIEW_FPS;
+
+// fase do loop (0..phaseMax-1)
+let phaseMax = PREVIEW_FRAME_COUNT;
+let framePhase = 0;
 
 let isPlaying = true;
-
-// fase atual (0..NUM_FRAMES-1)
-let framePhase = 0;
 
 // gravação de vídeo
 let recordingVideo = false;
 let recordingFrames = 0;
 let mediaRecorder = null;
 let recordedChunks = [];
+let exportFrameTarget = PREVIEW_FRAME_COUNT;
 
 // buffer para o preset 1 (imagem reinterpretada)
 let preset1Buffer = null;
@@ -45,7 +49,7 @@ function setup() {
   canvas = cnv;
   cnv.parent("canvas-holder");
 
-  frameRate(FPS);
+  frameRate(PREVIEW_FPS);
 
   imgInput = document.getElementById("image-input");
   presetSelect = document.getElementById("preset");
@@ -58,24 +62,21 @@ function setup() {
   playToggleBtn.addEventListener("click", togglePlay);
   exportVideoBtn.addEventListener("click", startExportVideo);
 
-  // UX: se trocar preset enquanto está pausado, redesenha 1 frame
+  // UX: trocar preset pausado redesenha um frame
   presetSelect.addEventListener("change", () => {
     framePhase = 0;
-    if (!isPlaying && !recordingVideo) {
-      redraw(); // funciona porque usamos noLoop() quando pausa
-    }
-  });
-
-  // UX: mexer na intensidade com animação pausada atualiza o frame
-  intensitySlider.addEventListener("input", () => {
-    // reset do buffer do preset estático
-    preset1Buffer = null;
     if (!isPlaying && !recordingVideo) {
       redraw();
     }
   });
 
-  // por padrão, p5 loopa; draw vai parar sozinho quando baseImg for null
+  // UX: mexer intensidade pausado redesenha um frame
+  intensitySlider.addEventListener("input", () => {
+    preset1Buffer = null; // força rebuild do preset estático
+    if (!isPlaying && !recordingVideo) {
+      redraw();
+    }
+  });
 }
 
 // ------------------------------------------------------
@@ -96,16 +97,16 @@ function draw() {
 
   if (!isPlaying && !recordingVideo) return;
 
-  const tNorm = framePhase / NUM_FRAMES;
+  const tNorm = framePhase / phaseMax;
   renderScene(tNorm);
 
   // avança fase discreta
-  framePhase = (framePhase + 1) % NUM_FRAMES;
+  framePhase = (framePhase + 1) % phaseMax;
 
-  // se estamos gravando, conta frames
+  // se estamos gravando, conta frames até o alvo
   if (recordingVideo) {
     recordingFrames++;
-    if (recordingFrames >= NUM_FRAMES) {
+    if (recordingFrames >= exportFrameTarget) {
       if (mediaRecorder && mediaRecorder.state === "recording") {
         mediaRecorder.stop();
       }
@@ -134,7 +135,6 @@ function handleImageUpload(e) {
         preset1Buffer = null;
         preset1LastIntensity = -1;
 
-        // força redesenho se estiver pausado
         if (!isPlaying && !recordingVideo) {
           redraw();
         }
@@ -192,16 +192,12 @@ function renderScene(tNorm) {
   noTint();
 
   if (preset === "drift") {
-    // PRESET 1: reinterpretar com fatias curvas (estático)
     renderPreset1Slices(intensity);
   } else if (preset === "slices") {
-    // PRESET 2: animado
     renderSlices(tNorm, intensity);
   } else if (preset === "melt") {
-    // PRESET 3: animado
     renderMelt(tNorm, intensity);
   } else if (preset === "scan") {
-    // PRESET 4: animado
     renderScan(tNorm, intensity);
   } else {
     image(baseImg, 0, 0, width, height);
@@ -216,18 +212,14 @@ function renderScene(tNorm) {
 function renderPreset1Slices(intensity) {
   if (!baseImg) return;
 
-  // Rebuild se ainda não existe ou se a intensidade mudou
   if (!preset1Buffer || Math.abs(intensity - preset1LastIntensity) > 0.01) {
     preset1Buffer = createGraphics(width, height);
     preset1Buffer.pixelDensity(1);
 
-    // cor de fundo aproximada do bg do Processing (248,245,232)
+    // cor de fundo aproximada (248,245,232)
     preset1Buffer.background(248, 245, 232);
 
-    // reinterpretar com fatias curvas
     applyCurvedSlicesToBuffer(baseImg, preset1Buffer, intensity);
-
-    // textura de papel
     applyPaperTextureToBuffer(preset1Buffer, intensity);
 
     preset1LastIntensity = intensity;
@@ -305,7 +297,7 @@ function renderSlices(tNorm, intensity) {
 
   for (let i = 0; i < slices; i++) {
     const y = i * sliceH;
-    const glitchPhase = t * 2.0 + i * 0.4; // harmônico 2 de t
+    const glitchPhase = t * 2.0 + i * 0.4; // harmônico 2
     const maxShift = 60 * intensity;
     const shiftX = sin(glitchPhase) * maxShift;
 
@@ -327,7 +319,7 @@ function renderMelt(tNorm, intensity) {
 
   for (let i = 0; i < cols; i++) {
     const x = i * colW;
-    const wavePhase = t * 2.0 + i * 0.25; // harmônico 2 de t
+    const wavePhase = t * 2.0 + i * 0.25; // harmônico 2
     const maxOffset = 50 * intensity;
     const offsetY = sin(wavePhase) * maxOffset;
 
@@ -351,7 +343,6 @@ function renderScan(tNorm, intensity) {
   const rowH = height / rows;
   const t = tNorm * TWO_PI;
 
-  // base: desenha linhas com deslocamento vertical + leve scaling
   for (let i = 0; i < rows; i++) {
     const y = i * rowH;
     const phase = t * 2.0 + i * 0.35; // harmônico 2
@@ -361,11 +352,10 @@ function renderScan(tNorm, intensity) {
     const jitterX = sin(phase * 1.7) * 10 * intensity;
     const srcY = y;
 
-    // linha principal
     image(baseImg, jitterX, y + shiftY, width, rowH, 0, srcY, width, rowH);
   }
 
-  // leve RGB split (apenas nas bordas)
+  // leve RGB split
   push();
   blendMode(ADD);
 
@@ -380,7 +370,7 @@ function renderScan(tNorm, intensity) {
   noTint();
   blendMode(BLEND);
 
-  // “scanline darkness”: reforça linhas escuras
+  // linhas escuras de scanline
   push();
   noFill();
   stroke(0, 40 + 80 * intensity);
@@ -407,7 +397,7 @@ function drawVignette() {
 }
 
 // ------------------------------------------------------
-// Export VIDEO (um ciclo completo: NUM_FRAMES frames)
+// Export VIDEO (um ciclo completo ~8s, usando FPS real)
 // ------------------------------------------------------
 function startExportVideo() {
   if (!baseImg || recordingVideo) return;
@@ -431,7 +421,18 @@ function startExportVideo() {
     return;
   }
 
-  const stream = canvas.elt.captureStream(FPS);
+  // deixa o browser decidir o FPS real do stream
+  const stream = canvas.elt.captureStream();
+  const track = stream.getVideoTracks()[0];
+  const settings = track.getSettings ? track.getSettings() : {};
+  const actualFPS = settings.frameRate || PREVIEW_FPS;
+
+  // frames alvo para ~LOOP_SECONDS segundos
+  exportFrameTarget = Math.round(LOOP_SECONDS * actualFPS);
+
+  // durante a gravação, a fase vai de 0..exportFrameTarget-1
+  phaseMax = exportFrameTarget;
+  framePhase = 0;
 
   try {
     mediaRecorder = new MediaRecorder(stream, { mimeType });
@@ -445,16 +446,14 @@ function startExportVideo() {
   recordingVideo = true;
   recordingFrames = 0;
 
-  // começa o ciclo do frame 0
-  framePhase = 0;
   isPlaying = true;
   loop();
 
   statusEl.textContent =
-    "Recording video… capturing one full loop (" +
-    NUM_FRAMES +
-    " frames at " +
-    FPS +
+    "Recording video… capturing one full loop (~" +
+    LOOP_SECONDS +
+    " s at " +
+    actualFPS.toFixed(2) +
     " fps).";
 
   mediaRecorder.ondataavailable = (e) => {
@@ -474,12 +473,19 @@ function startExportVideo() {
     URL.revokeObjectURL(url);
 
     statusEl.textContent =
-      "Video exported (one seamless loop, " +
-      FPS +
+      "Video exported (~" +
+      LOOP_SECONDS +
+      " s, " +
+      actualFPS.toFixed(2) +
       " fps, vertical 9:16 " +
       ext.toUpperCase() +
       "). Ready for Spotify Canvas.";
+
     recordingVideo = false;
+
+    // volta o loop visual para o preview conceitual (24 fps, 192 steps)
+    phaseMax = PREVIEW_FRAME_COUNT;
+    framePhase = 0;
   };
 
   mediaRecorder.start();
