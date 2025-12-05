@@ -2,7 +2,7 @@
 // - Loop definido por tempo real: LOOP_SECONDS (8s)
 // - 24 fps alvo para preview, canvas 540x960 (9:16)
 // - Presets:
-//     drift  → Orbital Overdrive
+//     drift  → Multi-layer Radial Twist (do sketch em Processing)
 //     slices → Signal Splitter
 //     melt   → Neon Melt
 
@@ -28,6 +28,9 @@ let loopStartTime = 0; // millis() no ponto em que o loop "zera"
 let recordingVideo = false;
 let mediaRecorder = null;
 let recordedChunks = [];
+
+// buffer de distorção para o preset 1
+let distortedImg = null;
 
 // ------------------------------------------------------
 // setup
@@ -93,8 +96,12 @@ function handleImageUpload(e) {
         baseImg = cropToCanvasAspect(img);
         statusEl.textContent =
           "Image loaded. Choose a preset, adjust intensity and export.";
+
         // reseta o tempo do loop quando carrega imagem nova
         loopStartTime = millis();
+
+        // prepara buffer de distorção do tamanho correto
+        distortedImg = createImage(width, height);
       },
       () => (statusEl.textContent = "Error loading image.")
     );
@@ -148,8 +155,8 @@ function renderScene(tNorm) {
   noTint();
 
   if (preset === "drift") {
-    // Orbital Overdrive
-    renderOrbitalOverdrive(tNorm, intensity);
+    // Multi-layer Radial Twist (adaptação do sketch de Processing)
+    renderMultiLayerRadialTwist(tNorm, intensity);
   } else if (preset === "slices") {
     // Signal Splitter
     renderSlices(tNorm, intensity);
@@ -164,85 +171,86 @@ function renderScene(tNorm) {
 }
 
 // ------------------------------------------------------
-// PRESET 1 — ORBITAL OVERDRIVE
-// harmônicos inteiros de t = 0..2π, vários ecos, zoom e rotação
+// PRESET 1 — MULTI-LAYER RADIAL TWIST
+// Adaptação fiel do sketch de Processing para p5.js
+// (usa baseImg já redimensionada ao canvas)
+// intensity escala a força das distorções
 // ------------------------------------------------------
-function renderOrbitalOverdrive(tNorm, intensity) {
-  const t = tNorm * TWO_PI; // fase 0..2π
+function renderMultiLayerRadialTwist(tNorm, intensity) {
+  if (!baseImg) return;
+  if (!distortedImg) distortedImg = createImage(width, height);
 
-  // zoom com harmônicos 1 e 2
-  const zoomBase =
-    1.15 +
-    0.20 * intensity * sin(t * 1.0) +
-    0.10 * intensity * sin(t * 2.0);
+  const strength = 0.4 + intensity; // fator extra de força
 
-  // rotação com harmônico 3
-  const angleBase = 0.35 * intensity * sin(t * 3.0);
+  const loopAngle = TWO_PI * tNorm; // 0..2π
+  const cx = width / 2;
+  const cy = height / 2;
 
-  // órbita central com harmônicos 1 e 2
-  const orbitRadius = 40 * intensity;
-  const cxOffset = cos(t * 1.0) * orbitRadius;
-  const cyOffset = sin(t * 2.0) * orbitRadius;
+  baseImg.loadPixels();
+  distortedImg.loadPixels();
 
-  imageMode(CENTER);
+  const w = width;
+  const h = height;
+  const imgW = baseImg.width;
+  const imgH = baseImg.height;
 
-  // camada base
-  push();
-  translate(width / 2 + cxOffset, height / 2 + cyOffset);
-  rotate(angleBase);
-  scale(zoomBase);
-  image(baseImg, 0, 0, width, height);
-  pop();
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      // --------- CAMADAS ORIGINAIS (adaptadas) ---------
+      let dx =
+        60 * strength * Math.sin(loopAngle + y * 0.01) +
+        30 * strength * Math.sin(loopAngle * 2.0 + y * 0.03) +
+        25 * strength * Math.cos(loopAngle * 3.0 + (x + y) * 0.02) +
+        10 * strength * Math.sin(loopAngle * 6.0 + x * 0.05);
 
-  // ecos coloridos com mistura aditiva
-  push();
-  blendMode(ADD);
+      let dy =
+        40 * strength * Math.cos(loopAngle + x * 0.01) +
+        50 * strength * Math.cos(loopAngle * 2.0 + y * 0.02) +
+        25 * strength * Math.sin(loopAngle * 3.0 + (x - y) * 0.02) +
+        10 * strength * Math.cos(loopAngle * 6.0 + y * 0.05);
 
-  const layers = 3;
-  for (let i = 0; i < layers; i++) {
-    const li = i + 1;
-    const layerScale = zoomBase * (1.0 + 0.08 * li);
-    const layerAngle = angleBase * (1.0 + 0.6 * li);
+      // --------- CAMADA: ONDAS RADIÁIS ---------
+      const dxC = x - cx;
+      const dyC = y - cy;
+      const distCenter = Math.sqrt(dxC * dxC + dyC * dyC);
 
-    // deslocamento extra em espiral (harmônicos inteiros)
-    const r = orbitRadius * (0.8 + 0.4 * li);
-    const lx = cos(t * (1 + li)) * r;
-    const ly = sin(t * (2 + li)) * r;
+      const radialShift = 40 * strength * Math.sin(loopAngle * 2 + distCenter * 0.02);
+      dx += Math.cos((y - cy) * 0.01) * radialShift * 0.5;
+      dy += Math.sin((x - cx) * 0.01) * radialShift * 0.5;
 
-    // variação de cor com harmônico 2
-    const hueShift = 0.5 + 0.5 * sin(t * 2.0 + li);
-    const rCol = 255;
-    const gCol = 80 + 120 * hueShift;
-    const bCol = 180 + 70 * (1.0 - hueShift);
-    const alpha = 90 - li * 20;
+      // --------- CAMADA: TWIST ROTACIONAL ---------
+      const angle = Math.atan2(dyC, dxC);
+      const radius = distCenter;
+      const twist = 0.2 * strength * Math.sin(loopAngle * 2);
+      const newAngle = angle + twist;
+      const tx = cx + radius * Math.cos(newAngle);
+      const ty = cy + radius * Math.sin(newAngle);
 
-    push();
-    translate(width / 2 + lx, height / 2 + ly);
-    rotate(layerAngle);
-    scale(layerScale);
-    tint(rCol, gCol, bCol, alpha);
-    image(baseImg, 0, 0, width, height);
-    pop();
+      dx += (tx - x) * 0.3;
+      dy += (ty - y) * 0.3;
+
+      // --------- AMOSTRAGEM / WRAP ---------
+      let sx = (x + dx + w) % w;
+      let sy = (y + dy + h) % h;
+
+      if (sx < 0) sx += w;
+      if (sy < 0) sy += h;
+
+      const sxImg = Math.floor((sx / w) * (imgW - 1));
+      const syImg = Math.floor((sy / h) * (imgH - 1));
+
+      const srcIndex = (syImg * imgW + sxImg) * 4;
+      const dstIndex = (y * w + x) * 4;
+
+      distortedImg.pixels[dstIndex + 0] = baseImg.pixels[srcIndex + 0];
+      distortedImg.pixels[dstIndex + 1] = baseImg.pixels[srcIndex + 1];
+      distortedImg.pixels[dstIndex + 2] = baseImg.pixels[srcIndex + 2];
+      distortedImg.pixels[dstIndex + 3] = 255;
+    }
   }
 
-  pop(); // blendMode ADD
-
-  // faixas diagonais para streak / motion blur (harmônico 4)
-  const bands = 10;
-  const bandH = height / bands;
-  for (let i = 0; i < bands; i++) {
-    const y = i * bandH;
-    const phase = t * 4.0 + i;
-    const shiftX = 20 * intensity * sin(phase);
-
-    push();
-    blendMode(ADD);
-    tint(255, 255 * 0.25);
-    image(baseImg, shiftX, y, width, bandH, 0, y, width, bandH);
-    pop();
-  }
-
-  imageMode(CORNER);
+  distortedImg.updatePixels();
+  image(distortedImg, 0, 0, width, height);
 }
 
 // ------------------------------------------------------
@@ -257,7 +265,7 @@ function renderSlices(tNorm, intensity) {
     const y = i * sliceH;
     const glitchPhase = t * 2.0 + i * 0.4; // harmônico 2 de t
     const maxShift = 60 * intensity;
-    const shiftX = sin(glitchPhase) * maxShift;
+    const shiftX = Math.sin(glitchPhase) * maxShift;
 
     image(baseImg, shiftX, y, width, sliceH, 0, y, width, sliceH);
   }
@@ -279,7 +287,7 @@ function renderMelt(tNorm, intensity) {
     const x = i * colW;
     const wavePhase = t * 2.0 + i * 0.25; // harmônico 2 de t
     const maxOffset = 50 * intensity;
-    const offsetY = sin(wavePhase) * maxOffset;
+    const offsetY = Math.sin(wavePhase) * maxOffset;
 
     image(baseImg, x, offsetY, colW, height, x, 0, colW, height);
   }
