@@ -1,11 +1,11 @@
 // Hell Yes Playground — MP4 only, loop fechado
-// - 8s "conceituais", mas o loop é definido por NUM_FRAMES
-// - 24 fps alvo, canvas 540x960 (9:16)
-// - Fase discreta por frame (framePhase) → sem jump
+// - 8s conceituais: NUM_FRAMES = 8 * 24 = 192
+// - 24 fps, canvas 540x960 (9:16)
+// - Fase discreta por frame (framePhase) → último frame = primeiro
 // - Presets:
-//     drift  → Orbital Overdrive
-//     slices → Signal Splitter
-//     melt   → Neon Melt
+//   drift  → Preset 1 (Orbital animado, radical, sem random)
+//   slices → Preset 2 (Signal Splitter)
+//   melt   → Preset 3 (Neon Melt)
 
 let canvas;
 let baseImg = null;
@@ -19,7 +19,7 @@ let imgInput,
 
 const LOOP_SECONDS = 8;
 const FPS = 24;
-const NUM_FRAMES = LOOP_SECONDS * FPS; // 192 passos de fase
+const NUM_FRAMES = LOOP_SECONDS * FPS; // 192 frames
 
 let isPlaying = true;
 
@@ -40,7 +40,7 @@ function setup() {
   canvas = cnv;
   cnv.parent("canvas-holder");
 
-  frameRate(FPS); // tenta manter 24 fps reais
+  frameRate(FPS); // tenta manter 24 fps visuais
 
   imgInput = document.getElementById("image-input");
   presetSelect = document.getElementById("preset");
@@ -71,18 +71,17 @@ function draw() {
 
   if (!isPlaying && !recordingVideo) return;
 
-  // fase normalizada 0..1
+  // fase normalizada 0..1, discreta
   const tNorm = framePhase / NUM_FRAMES;
   renderScene(tNorm);
 
-  // avança fase discretamente
+  // avança fase (sempre 0..NUM_FRAMES-1)
   framePhase = (framePhase + 1) % NUM_FRAMES;
 
-  // se estamos gravando, conta frames
+  // se estamos gravando, contamos frames
   if (recordingVideo) {
     recordingFrames++;
     if (recordingFrames >= NUM_FRAMES) {
-      // gravou exatamente um ciclo completo
       if (mediaRecorder && mediaRecorder.state === "recording") {
         mediaRecorder.stop();
       }
@@ -159,13 +158,13 @@ function renderScene(tNorm) {
   noTint();
 
   if (preset === "drift") {
-    // Orbital Overdrive
-    renderOrbitalOverdrive(tNorm, intensity);
+    // PRESET 1 — Orbital animado
+    renderPreset1Orbital(tNorm, intensity);
   } else if (preset === "slices") {
-    // Signal Splitter
+    // PRESET 2
     renderSlices(tNorm, intensity);
   } else if (preset === "melt") {
-    // Neon Melt
+    // PRESET 3
     renderMelt(tNorm, intensity);
   } else {
     image(baseImg, 0, 0, width, height);
@@ -175,60 +174,62 @@ function renderScene(tNorm) {
 }
 
 // ------------------------------------------------------
-// PRESET 1 — ORBITAL OVERDRIVE
-// harmônicos inteiros de t = 0..2π, vários ecos, zoom e rotação
+// PRESET 1 — Orbital animado radical, sem random
+// Loop perfeito: tudo é função de t = 0..2π com harmônicos inteiros
 // ------------------------------------------------------
-function renderOrbitalOverdrive(tNorm, intensity) {
-  const t = tNorm * TWO_PI; // fase 0..2π
-
-  // zoom com harmônicos 1 e 2
-  const zoomBase =
-    1.15 +
-    0.20 * intensity * sin(t * 1.0) +
-    0.10 * intensity * sin(t * 2.0);
-
-  // rotação com harmônico 3
-  const angleBase = 0.35 * intensity * sin(t * 3.0);
-
-  // órbita central com harmônicos 1 e 2
-  const orbitRadius = 40 * intensity;
-  const cxOffset = cos(t * 1.0) * orbitRadius;
-  const cyOffset = sin(t * 2.0) * orbitRadius;
+function renderPreset1Orbital(tNorm, intensity) {
+  const t = tNorm * TWO_PI; // 0..2π
 
   imageMode(CENTER);
 
-  // camada base
+  // camada base — deslocamento orbital + zoom + rotação
+  const baseOrbitR = 40 * intensity;
+  const baseCx = width / 2 + baseOrbitR * cos(t * 1.0);
+  const baseCy = height / 2 + baseOrbitR * sin(t * 2.0);
+
+  const baseZoom =
+    1.15 +
+    0.18 * intensity * sin(t * 1.0) +
+    0.10 * intensity * sin(t * 2.0);
+  const baseAngle = 0.35 * intensity * sin(t * 3.0);
+
   push();
-  translate(width / 2 + cxOffset, height / 2 + cyOffset);
-  rotate(angleBase);
-  scale(zoomBase);
+  translate(baseCx, baseCy);
+  rotate(baseAngle);
+  scale(baseZoom);
   image(baseImg, 0, 0, width, height);
   pop();
 
-  // ecos coloridos com mistura aditiva
+  // ecos coloridos em blendMode(ADD)
   push();
   blendMode(ADD);
 
   const layers = 3;
   for (let i = 0; i < layers; i++) {
     const li = i + 1;
-    const layerScale = zoomBase * (1.0 + 0.08 * li);
-    const layerAngle = angleBase * (1.0 + 0.6 * li);
 
-    // deslocamento extra em espiral (harmônicos inteiros)
-    const r = orbitRadius * (0.8 + 0.4 * li);
-    const lx = cos(t * (1 + li)) * r;
-    const ly = sin(t * (2 + li)) * r;
+    // raio de órbita maior pra cada eco
+    const r = baseOrbitR * (1.0 + 0.7 * li);
+    const angleOrbit = t * (1.0 + li); // harmônicos 2,3,4...
 
-    // variação de cor com harmônico 2
-    const hueShift = 0.5 + 0.5 * sin(t * 2.0 + li);
-    const rCol = 255;
-    const gCol = 80 + 120 * hueShift;
-    const bCol = 180 + 70 * (1.0 - hueShift);
-    const alpha = 90 - li * 20;
+    const lx = width / 2 + r * cos(angleOrbit);
+    const ly = height / 2 + r * sin(angleOrbit * 1.5);
+
+    const layerScale =
+      baseZoom * (1.0 + 0.10 * li * (0.5 + intensity));
+    const layerAngle =
+      baseAngle * (1.0 + 0.8 * li) +
+      0.4 * intensity * sin(t * (2 + li));
+
+    // variação de cor estável (sem random)
+    const huePhase = t * 2.0 + li;
+    const rCol = 200 + 55 * sin(huePhase);
+    const gCol = 80 + 120 * sin(huePhase + PI * 0.33);
+    const bCol = 160 + 80 * sin(huePhase + PI * 0.66);
+    const alpha = 85 - li * 20;
 
     push();
-    translate(width / 2 + lx, height / 2 + ly);
+    translate(lx, ly);
     rotate(layerAngle);
     scale(layerScale);
     tint(rCol, gCol, bCol, alpha);
@@ -238,18 +239,19 @@ function renderOrbitalOverdrive(tNorm, intensity) {
 
   pop(); // blendMode ADD
 
-  // faixas diagonais para streak / motion blur (harmônico 4)
-  const bands = 10;
+  // streaks horizontais (tipo scanline / motion blur)
+  const bands = 12;
   const bandH = height / bands;
   for (let i = 0; i < bands; i++) {
     const y = i * bandH;
-    const phase = t * 4.0 + i;
-    const shiftX = 20 * intensity * sin(phase);
+    const phase = t * 4.0 + i; // harmônico 4
+    const shiftX = 25 * intensity * sin(phase);
+    const shiftY = 6 * intensity * cos(phase * 0.5);
 
     push();
     blendMode(ADD);
-    tint(255, 255 * 0.25);
-    image(baseImg, shiftX, y, width, bandH, 0, y, width, bandH);
+    tint(255, 40);
+    image(baseImg, shiftX, y + shiftY, width, bandH, 0, y, width, bandH);
     pop();
   }
 
@@ -257,7 +259,7 @@ function renderOrbitalOverdrive(tNorm, intensity) {
 }
 
 // ------------------------------------------------------
-// PRESET 2 — SIGNAL SPLITTER (harmônico 2)
+// PRESET 2 — Signal Splitter (slices animados, harmônico 2)
 // ------------------------------------------------------
 function renderSlices(tNorm, intensity) {
   const slices = 28;
@@ -266,7 +268,7 @@ function renderSlices(tNorm, intensity) {
 
   for (let i = 0; i < slices; i++) {
     const y = i * sliceH;
-    const glitchPhase = t * 2.0 + i * 0.4; // harmônico 2 de t
+    const glitchPhase = t * 2.0 + i * 0.4; // harmônico 2
     const maxShift = 60 * intensity;
     const shiftX = sin(glitchPhase) * maxShift;
 
@@ -279,7 +281,7 @@ function renderSlices(tNorm, intensity) {
 }
 
 // ------------------------------------------------------
-// PRESET 3 — NEON MELT (harmônico 2)
+// PRESET 3 — Neon Melt (ondas verticais, harmônico 2)
 // ------------------------------------------------------
 function renderMelt(tNorm, intensity) {
   const cols = 70;
@@ -288,7 +290,7 @@ function renderMelt(tNorm, intensity) {
 
   for (let i = 0; i < cols; i++) {
     const x = i * colW;
-    const wavePhase = t * 2.0 + i * 0.25; // harmônico 2 de t
+    const wavePhase = t * 2.0 + i * 0.25; // harmônico 2
     const maxOffset = 50 * intensity;
     const offsetY = sin(wavePhase) * maxOffset;
 
@@ -358,7 +360,7 @@ function startExportVideo() {
   recordingVideo = true;
   recordingFrames = 0;
 
-  // garante que o ciclo começa do frame 0
+  // começa o ciclo do frame 0 sempre que for exportar
   framePhase = 0;
   isPlaying = true;
   loop();
