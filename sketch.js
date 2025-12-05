@@ -1,11 +1,12 @@
 // Hell Yes Playground — MP4 only, loop fechado
-// - 8s conceituais: NUM_FRAMES = 8 * 24 = 192
+// - 8s conceituais (NUM_FRAMES = 8 * 24)
 // - 24 fps, canvas 540x960 (9:16)
-// - Fase discreta por frame (framePhase) → último frame = primeiro
+// - Fase discreta por frame (framePhase) → sem jump
 // - Presets:
-//   drift  → Preset 1 (Orbital animado, radical, sem random)
-//   slices → Preset 2 (Signal Splitter)
-//   melt   → Preset 3 (Neon Melt)
+//   drift  → Preset 1: fatias curvas estáticas (reinterpretation)
+//   slices → Preset 2: Signal Splitter (animado, harmônico 2)
+//   melt   → Preset 3: Neon Melt (animado, harmônico 2)
+//   scan   → Preset 4: Scanline Glitch (animado, harmônico 2)
 
 let canvas;
 let baseImg = null;
@@ -32,6 +33,10 @@ let recordingFrames = 0;
 let mediaRecorder = null;
 let recordedChunks = [];
 
+// buffer para o preset 1 (imagem reinterpretada)
+let preset1Buffer = null;
+let preset1LastIntensity = -1;
+
 // ------------------------------------------------------
 // setup
 // ------------------------------------------------------
@@ -40,7 +45,7 @@ function setup() {
   canvas = cnv;
   cnv.parent("canvas-holder");
 
-  frameRate(FPS); // tenta manter 24 fps visuais
+  frameRate(FPS);
 
   imgInput = document.getElementById("image-input");
   presetSelect = document.getElementById("preset");
@@ -52,8 +57,28 @@ function setup() {
   imgInput.addEventListener("change", handleImageUpload);
   playToggleBtn.addEventListener("click", togglePlay);
   exportVideoBtn.addEventListener("click", startExportVideo);
+
+  // UX: se trocar preset enquanto está pausado, redesenha 1 frame
+  presetSelect.addEventListener("change", () => {
+    framePhase = 0;
+    if (!isPlaying && !recordingVideo) {
+      redraw(); // funciona porque usamos noLoop() quando pausa
+    }
+  });
+
+  // UX: mexer na intensidade com animação pausada atualiza o frame
+  intensitySlider.addEventListener("input", () => {
+    // reset do buffer do preset estático
+    preset1Buffer = null;
+    if (!isPlaying && !recordingVideo) {
+      redraw();
+    }
+  });
+
+  // por padrão, p5 loopa; draw vai parar sozinho quando baseImg for null
 }
 
+// ------------------------------------------------------
 function draw() {
   if (!baseImg) {
     background(10);
@@ -71,14 +96,13 @@ function draw() {
 
   if (!isPlaying && !recordingVideo) return;
 
-  // fase normalizada 0..1, discreta
   const tNorm = framePhase / NUM_FRAMES;
   renderScene(tNorm);
 
-  // avança fase (sempre 0..NUM_FRAMES-1)
+  // avança fase discreta
   framePhase = (framePhase + 1) % NUM_FRAMES;
 
-  // se estamos gravando, contamos frames
+  // se estamos gravando, conta frames
   if (recordingVideo) {
     recordingFrames++;
     if (recordingFrames >= NUM_FRAMES) {
@@ -105,6 +129,15 @@ function handleImageUpload(e) {
         baseImg = cropToCanvasAspect(img);
         statusEl.textContent =
           "Image loaded. Choose a preset, adjust intensity and export.";
+
+        // nova imagem → refaz preset 1
+        preset1Buffer = null;
+        preset1LastIntensity = -1;
+
+        // força redesenho se estiver pausado
+        if (!isPlaying && !recordingVideo) {
+          redraw();
+        }
       },
       () => (statusEl.textContent = "Error loading image.")
     );
@@ -118,13 +151,11 @@ function cropToCanvasAspect(img) {
 
   let sx, sy, sWidth, sHeight;
   if (srcAspect > targetAspect) {
-    // imagem mais larga → corta lados
     sHeight = img.height;
     sWidth = sHeight * targetAspect;
     sx = (img.width - sWidth) / 2;
     sy = 0;
   } else {
-    // imagem mais alta → corta topo/base
     sWidth = img.width;
     sHeight = sWidth / targetAspect;
     sx = 0;
@@ -142,8 +173,11 @@ function cropToCanvasAspect(img) {
 function togglePlay() {
   isPlaying = !isPlaying;
   playToggleBtn.textContent = isPlaying ? "Pause" : "Play";
-  if (isPlaying) loop();
-  else if (!recordingVideo) noLoop();
+  if (isPlaying) {
+    loop();
+  } else if (!recordingVideo) {
+    noLoop();
+  }
 }
 
 // ------------------------------------------------------
@@ -158,14 +192,17 @@ function renderScene(tNorm) {
   noTint();
 
   if (preset === "drift") {
-    // PRESET 1 — Orbital animado
-    renderPreset1Orbital(tNorm, intensity);
+    // PRESET 1: reinterpretar com fatias curvas (estático)
+    renderPreset1Slices(intensity);
   } else if (preset === "slices") {
-    // PRESET 2
+    // PRESET 2: animado
     renderSlices(tNorm, intensity);
   } else if (preset === "melt") {
-    // PRESET 3
+    // PRESET 3: animado
     renderMelt(tNorm, intensity);
+  } else if (preset === "scan") {
+    // PRESET 4: animado
+    renderScan(tNorm, intensity);
   } else {
     image(baseImg, 0, 0, width, height);
   }
@@ -174,92 +211,92 @@ function renderScene(tNorm) {
 }
 
 // ------------------------------------------------------
-// PRESET 1 — Orbital animado radical, sem random
-// Loop perfeito: tudo é função de t = 0..2π com harmônicos inteiros
+// PRESET 1 — Fatias curvas suaves + textura de papel (estático)
 // ------------------------------------------------------
-function renderPreset1Orbital(tNorm, intensity) {
-  const t = tNorm * TWO_PI; // 0..2π
+function renderPreset1Slices(intensity) {
+  if (!baseImg) return;
 
-  imageMode(CENTER);
+  // Rebuild se ainda não existe ou se a intensidade mudou
+  if (!preset1Buffer || Math.abs(intensity - preset1LastIntensity) > 0.01) {
+    preset1Buffer = createGraphics(width, height);
+    preset1Buffer.pixelDensity(1);
 
-  // camada base — deslocamento orbital + zoom + rotação
-  const baseOrbitR = 40 * intensity;
-  const baseCx = width / 2 + baseOrbitR * cos(t * 1.0);
-  const baseCy = height / 2 + baseOrbitR * sin(t * 2.0);
+    // cor de fundo aproximada do bg do Processing (248,245,232)
+    preset1Buffer.background(248, 245, 232);
 
-  const baseZoom =
-    1.15 +
-    0.18 * intensity * sin(t * 1.0) +
-    0.10 * intensity * sin(t * 2.0);
-  const baseAngle = 0.35 * intensity * sin(t * 3.0);
+    // reinterpretar com fatias curvas
+    applyCurvedSlicesToBuffer(baseImg, preset1Buffer, intensity);
 
-  push();
-  translate(baseCx, baseCy);
-  rotate(baseAngle);
-  scale(baseZoom);
-  image(baseImg, 0, 0, width, height);
-  pop();
+    // textura de papel
+    applyPaperTextureToBuffer(preset1Buffer, intensity);
 
-  // ecos coloridos em blendMode(ADD)
-  push();
-  blendMode(ADD);
-
-  const layers = 3;
-  for (let i = 0; i < layers; i++) {
-    const li = i + 1;
-
-    // raio de órbita maior pra cada eco
-    const r = baseOrbitR * (1.0 + 0.7 * li);
-    const angleOrbit = t * (1.0 + li); // harmônicos 2,3,4...
-
-    const lx = width / 2 + r * cos(angleOrbit);
-    const ly = height / 2 + r * sin(angleOrbit * 1.5);
-
-    const layerScale =
-      baseZoom * (1.0 + 0.10 * li * (0.5 + intensity));
-    const layerAngle =
-      baseAngle * (1.0 + 0.8 * li) +
-      0.4 * intensity * sin(t * (2 + li));
-
-    // variação de cor estável (sem random)
-    const huePhase = t * 2.0 + li;
-    const rCol = 200 + 55 * sin(huePhase);
-    const gCol = 80 + 120 * sin(huePhase + PI * 0.33);
-    const bCol = 160 + 80 * sin(huePhase + PI * 0.66);
-    const alpha = 85 - li * 20;
-
-    push();
-    translate(lx, ly);
-    rotate(layerAngle);
-    scale(layerScale);
-    tint(rCol, gCol, bCol, alpha);
-    image(baseImg, 0, 0, width, height);
-    pop();
+    preset1LastIntensity = intensity;
   }
 
-  pop(); // blendMode ADD
+  image(preset1Buffer, 0, 0, width, height);
+}
 
-  // streaks horizontais (tipo scanline / motion blur)
-  const bands = 12;
-  const bandH = height / bands;
-  for (let i = 0; i < bands; i++) {
-    const y = i * bandH;
-    const phase = t * 4.0 + i; // harmônico 4
-    const shiftX = 25 * intensity * sin(phase);
-    const shiftY = 6 * intensity * cos(phase * 0.5);
+function applyCurvedSlicesToBuffer(src, pg, intensity) {
+  let y = 0;
 
-    push();
-    blendMode(ADD);
-    tint(255, 40);
-    image(baseImg, shiftX, y + shiftY, width, bandH, 0, y, width, bandH);
-    pop();
+  while (y < src.height) {
+    let sliceH = random(15, 50);
+    if (y + sliceH > src.height) sliceH = src.height - y;
+
+    const slice = src.get(0, int(y), src.width, int(sliceH));
+
+    const offsets = [];
+    const freq = random(0.005, 0.015);
+    const amp = random(5, 15) * (0.5 + intensity);
+    const phase = random(TWO_PI);
+
+    for (let i = 0; i < slice.width; i++) {
+      offsets[i] = sin(i * freq + phase) * amp;
+    }
+
+    const deslocamentoX = random(-5, 5) * (0.5 + intensity);
+
+    for (let j = 0; j < sliceH; j++) {
+      for (let i = 0; i < slice.width; i++) {
+        const c = slice.get(i, j);
+        const r = red(c);
+        const g = green(c);
+        const b = blue(c);
+
+        const r2 = constrain(r * random(0.97, 1.05), 0, 255);
+        const g2 = constrain(g * random(0.97, 1.05), 0, 255);
+        const b2 = constrain(b * random(0.97, 1.05), 0, 255);
+
+        const xx = i + offsets[i] + deslocamentoX;
+        const yy = y + j;
+
+        pg.stroke(r2, g2, b2);
+        pg.point(xx, yy);
+      }
+    }
+
+    y += sliceH;
   }
+}
 
-  imageMode(CORNER);
+function applyPaperTextureToBuffer(pg, intensity) {
+  const baseDensity = 5000;
+  const densidade = int(baseDensity * (0.5 + intensity));
+
+  for (let i = 0; i < densidade; i++) {
+    const x = random(pg.width);
+    const y = random(pg.height);
+    const r = random(0.3, 1.5);
+    const alpha = int(random(5, 25));
+
+    pg.noStroke();
+    pg.fill(255, alpha);
+    pg.ellipse(x, y, r, r);
+  }
 }
 
 // ------------------------------------------------------
-// PRESET 2 — Signal Splitter (slices animados, harmônico 2)
+// PRESET 2 — Signal Splitter (animado, harmônico 2)
 // ------------------------------------------------------
 function renderSlices(tNorm, intensity) {
   const slices = 28;
@@ -268,7 +305,7 @@ function renderSlices(tNorm, intensity) {
 
   for (let i = 0; i < slices; i++) {
     const y = i * sliceH;
-    const glitchPhase = t * 2.0 + i * 0.4; // harmônico 2
+    const glitchPhase = t * 2.0 + i * 0.4; // harmônico 2 de t
     const maxShift = 60 * intensity;
     const shiftX = sin(glitchPhase) * maxShift;
 
@@ -281,7 +318,7 @@ function renderSlices(tNorm, intensity) {
 }
 
 // ------------------------------------------------------
-// PRESET 3 — Neon Melt (ondas verticais, harmônico 2)
+// PRESET 3 — Neon Melt (animado, harmônico 2)
 // ------------------------------------------------------
 function renderMelt(tNorm, intensity) {
   const cols = 70;
@@ -290,7 +327,7 @@ function renderMelt(tNorm, intensity) {
 
   for (let i = 0; i < cols; i++) {
     const x = i * colW;
-    const wavePhase = t * 2.0 + i * 0.25; // harmônico 2
+    const wavePhase = t * 2.0 + i * 0.25; // harmônico 2 de t
     const maxOffset = 50 * intensity;
     const offsetY = sin(wavePhase) * maxOffset;
 
@@ -304,6 +341,54 @@ function renderMelt(tNorm, intensity) {
   pop();
   noTint();
   blendMode(BLEND);
+}
+
+// ------------------------------------------------------
+// PRESET 4 — Scanline Glitch (animado, harmônico 2)
+// ------------------------------------------------------
+function renderScan(tNorm, intensity) {
+  const rows = 90; // mais linhas = scan mais fino
+  const rowH = height / rows;
+  const t = tNorm * TWO_PI;
+
+  // base: desenha linhas com deslocamento vertical + leve scaling
+  for (let i = 0; i < rows; i++) {
+    const y = i * rowH;
+    const phase = t * 2.0 + i * 0.35; // harmônico 2
+    const maxShiftY = 35 * intensity;
+    const shiftY = sin(phase) * maxShiftY;
+
+    const jitterX = sin(phase * 1.7) * 10 * intensity;
+    const srcY = y;
+
+    // linha principal
+    image(baseImg, jitterX, y + shiftY, width, rowH, 0, srcY, width, rowH);
+  }
+
+  // leve RGB split (apenas nas bordas)
+  push();
+  blendMode(ADD);
+
+  const rgbOffset = 10 * intensity;
+  tint(255, 0, 0, 40);
+  image(baseImg, -rgbOffset, -rgbOffset, width, height);
+
+  tint(0, 255, 255, 35);
+  image(baseImg, rgbOffset * 0.7, rgbOffset * 0.7, width, height);
+
+  pop();
+  noTint();
+  blendMode(BLEND);
+
+  // “scanline darkness”: reforça linhas escuras
+  push();
+  noFill();
+  stroke(0, 40 + 80 * intensity);
+  strokeWeight(1);
+  for (let y = 0; y < height; y += 2) {
+    line(0, y, width, y);
+  }
+  pop();
 }
 
 // -------- Vinheta --------
@@ -360,7 +445,7 @@ function startExportVideo() {
   recordingVideo = true;
   recordingFrames = 0;
 
-  // começa o ciclo do frame 0 sempre que for exportar
+  // começa o ciclo do frame 0
   framePhase = 0;
   isPlaying = true;
   loop();
