@@ -1,8 +1,8 @@
 // Hell Yes Playground — MP4 only, loop fechado
 // - Loop definido por tempo real: LOOP_SECONDS (8s)
-// - 24 fps alvo para preview, canvas 540x960 (9:16)
+// - Preview alvo ~24 fps, canvas 540x960 (9:16)
 // - Presets:
-//     drift  → Multi-layer Radial Twist (do sketch em Processing)
+//     drift  → Orbital Overdrive (leve, baseado em transforms)
 //     slices → Signal Splitter
 //     melt   → Neon Melt
 
@@ -17,7 +17,7 @@ let imgInput,
   statusEl;
 
 const LOOP_SECONDS = 8;
-const FPS = 24; // fps alvo para preview (não garante fps exato na gravação)
+const FPS = 24; // alvo de preview
 
 let isPlaying = true;
 
@@ -29,9 +29,6 @@ let recordingVideo = false;
 let mediaRecorder = null;
 let recordedChunks = [];
 
-// buffer de distorção para o preset 1
-let distortedImg = null;
-
 // ------------------------------------------------------
 // setup
 // ------------------------------------------------------
@@ -40,7 +37,10 @@ function setup() {
   canvas = cnv;
   cnv.parent("canvas-holder");
 
-  frameRate(FPS); // tenta manter 24 fps de preview
+  // mantém resolução 540x960, só desliga o "retina x2"
+  pixelDensity(1);
+
+  frameRate(FPS); // tenta manter ~24 fps de preview
 
   imgInput = document.getElementById("image-input");
   presetSelect = document.getElementById("preset");
@@ -99,9 +99,6 @@ function handleImageUpload(e) {
 
         // reseta o tempo do loop quando carrega imagem nova
         loopStartTime = millis();
-
-        // prepara buffer de distorção do tamanho correto
-        distortedImg = createImage(width, height);
       },
       () => (statusEl.textContent = "Error loading image.")
     );
@@ -129,6 +126,7 @@ function cropToCanvasAspect(img) {
   }
 
   const gfx = createGraphics(width, height);
+  gfx.pixelDensity(1);
   gfx.image(img, 0, 0, width, height, sx, sy, sWidth, sHeight);
   return gfx;
 }
@@ -155,8 +153,8 @@ function renderScene(tNorm) {
   noTint();
 
   if (preset === "drift") {
-    // Multi-layer Radial Twist (adaptação do sketch de Processing)
-    renderMultiLayerRadialTwist(tNorm, intensity);
+    // Orbital Overdrive (versão leve, sem per-pixel)
+    renderOrbitalOverdrive(tNorm, intensity);
   } else if (preset === "slices") {
     // Signal Splitter
     renderSlices(tNorm, intensity);
@@ -171,86 +169,68 @@ function renderScene(tNorm) {
 }
 
 // ------------------------------------------------------
-// PRESET 1 — MULTI-LAYER RADIAL TWIST
-// Adaptação fiel do sketch de Processing para p5.js
-// (usa baseImg já redimensionada ao canvas)
-// intensity escala a força das distorções
+// PRESET 1 — ORBITAL OVERDRIVE (leve)
+// uso só de transforms + múltiplas camadas,
+// tudo baseado em t = 0..2π com harmônicos inteiros
 // ------------------------------------------------------
-function renderMultiLayerRadialTwist(tNorm, intensity) {
-  if (!baseImg) return;
-  if (!distortedImg) distortedImg = createImage(width, height);
+function renderOrbitalOverdrive(tNorm, intensity) {
+  const t = tNorm * TWO_PI; // fase 0..2π
 
-  const strength = 0.4 + intensity; // fator extra de força
+  // zoom suave (harmônicos 1 e 2)
+  const zoomBase =
+    1.08 +
+    0.15 * intensity * Math.sin(t * 1.0) +
+    0.07 * intensity * Math.sin(t * 2.0);
 
-  const loopAngle = TWO_PI * tNorm; // 0..2π
-  const cx = width / 2;
-  const cy = height / 2;
+  // rotação (harmônico 3)
+  const angleBase = 0.25 * intensity * Math.sin(t * 3.0);
 
-  baseImg.loadPixels();
-  distortedImg.loadPixels();
+  // órbita do bloco principal (harmônicos 1 e 2)
+  const orbitRadius = 30 * intensity;
+  const cxOffset = Math.cos(t * 1.0) * orbitRadius;
+  const cyOffset = Math.sin(t * 2.0) * orbitRadius;
 
-  const w = width;
-  const h = height;
-  const imgW = baseImg.width;
-  const imgH = baseImg.height;
+  imageMode(CENTER);
 
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      // --------- CAMADAS ORIGINAIS (adaptadas) ---------
-      let dx =
-        60 * strength * Math.sin(loopAngle + y * 0.01) +
-        30 * strength * Math.sin(loopAngle * 2.0 + y * 0.03) +
-        25 * strength * Math.cos(loopAngle * 3.0 + (x + y) * 0.02) +
-        10 * strength * Math.sin(loopAngle * 6.0 + x * 0.05);
+  // camada base
+  push();
+  translate(width / 2 + cxOffset, height / 2 + cyOffset);
+  rotate(angleBase);
+  scale(zoomBase);
+  image(baseImg, 0, 0, width, height);
+  pop();
 
-      let dy =
-        40 * strength * Math.cos(loopAngle + x * 0.01) +
-        50 * strength * Math.cos(loopAngle * 2.0 + y * 0.02) +
-        25 * strength * Math.sin(loopAngle * 3.0 + (x - y) * 0.02) +
-        10 * strength * Math.cos(loopAngle * 6.0 + y * 0.05);
+  // ecos coloridos com ADD — barato, sem per-pixel
+  push();
+  blendMode(ADD);
 
-      // --------- CAMADA: ONDAS RADIÁIS ---------
-      const dxC = x - cx;
-      const dyC = y - cy;
-      const distCenter = Math.sqrt(dxC * dxC + dyC * dyC);
+  const layers = 3;
+  for (let i = 0; i < layers; i++) {
+    const li = i + 1;
+    const layerScale = zoomBase * (1.0 + 0.06 * li);
+    const layerAngle = angleBase * (1.0 + 0.7 * li);
 
-      const radialShift = 40 * strength * Math.sin(loopAngle * 2 + distCenter * 0.02);
-      dx += Math.cos((y - cy) * 0.01) * radialShift * 0.5;
-      dy += Math.sin((x - cx) * 0.01) * radialShift * 0.5;
+    const r = orbitRadius * (0.7 + 0.3 * li);
+    const lx = Math.cos(t * (1 + li)) * r;
+    const ly = Math.sin(t * (2 + li)) * r;
 
-      // --------- CAMADA: TWIST ROTACIONAL ---------
-      const angle = Math.atan2(dyC, dxC);
-      const radius = distCenter;
-      const twist = 0.2 * strength * Math.sin(loopAngle * 2);
-      const newAngle = angle + twist;
-      const tx = cx + radius * Math.cos(newAngle);
-      const ty = cy + radius * Math.sin(newAngle);
+    const hueShift = 0.5 + 0.5 * Math.sin(t * 2.0 + li);
+    const rCol = 255;
+    const gCol = 90 + 110 * hueShift;
+    const bCol = 170 + 60 * (1.0 - hueShift);
+    const alpha = 75 - li * 15;
 
-      dx += (tx - x) * 0.3;
-      dy += (ty - y) * 0.3;
-
-      // --------- AMOSTRAGEM / WRAP ---------
-      let sx = (x + dx + w) % w;
-      let sy = (y + dy + h) % h;
-
-      if (sx < 0) sx += w;
-      if (sy < 0) sy += h;
-
-      const sxImg = Math.floor((sx / w) * (imgW - 1));
-      const syImg = Math.floor((sy / h) * (imgH - 1));
-
-      const srcIndex = (syImg * imgW + sxImg) * 4;
-      const dstIndex = (y * w + x) * 4;
-
-      distortedImg.pixels[dstIndex + 0] = baseImg.pixels[srcIndex + 0];
-      distortedImg.pixels[dstIndex + 1] = baseImg.pixels[srcIndex + 1];
-      distortedImg.pixels[dstIndex + 2] = baseImg.pixels[srcIndex + 2];
-      distortedImg.pixels[dstIndex + 3] = 255;
-    }
+    push();
+    translate(width / 2 + lx, height / 2 + ly);
+    rotate(layerAngle);
+    scale(layerScale);
+    tint(rCol, gCol, bCol, alpha);
+    image(baseImg, 0, 0, width, height);
+    pop();
   }
 
-  distortedImg.updatePixels();
-  image(distortedImg, 0, 0, width, height);
+  pop(); // blendMode ADD
+  imageMode(CORNER);
 }
 
 // ------------------------------------------------------
@@ -344,7 +324,10 @@ function startExportVideo() {
   const stream = canvas.elt.captureStream(FPS);
 
   try {
-    mediaRecorder = new MediaRecorder(stream, { mimeType });
+    mediaRecorder = new MediaRecorder(stream, {
+      mimeType,
+      videoBitsPerSecond: 8_000_000 // bitrate mais alto pra não zoar a qualidade
+    });
   } catch (err) {
     console.error("MediaRecorder init error:", err);
     statusEl.textContent = "Could not start video export.";
@@ -381,14 +364,14 @@ function startExportVideo() {
     a.click();
     URL.revokeObjectURL(url);
 
+    recordingVideo = false;
+
     statusEl.textContent =
       "Video exported (~" +
       LOOP_SECONDS +
       " s, vertical 9:16 " +
       ext.toUpperCase() +
       "). Ready for Spotify Canvas.";
-
-    recordingVideo = false;
   };
 
   mediaRecorder.start();
