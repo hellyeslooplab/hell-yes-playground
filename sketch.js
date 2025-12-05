@@ -1,11 +1,11 @@
-// Hell Yes Playground — MP4 only
-// - 8s loop, 24 fps, canvas 540x960 (9:16)
-// - Upload de imagem + crop automático 9:16
+// Hell Yes Playground — MP4 only, loop fechado
+// - 8s "conceituais", mas o loop é definido por NUM_FRAMES
+// - 24 fps alvo, canvas 540x960 (9:16)
+// - Fase discreta por frame (framePhase) → sem jump
 // - Presets:
-//     1) Orbital Overdrive (radical, multi-ecos, rotação/zoom forte)
-//     2) Signal Splitter (faixas glitchadas)
-//     3) Neon Melt (ondas verticais)
-// - Exporta vídeo 8s via MediaRecorder (MP4 se possível, senão WEBM)
+//     drift  → Orbital Overdrive
+//     slices → Signal Splitter
+//     melt   → Neon Melt
 
 let canvas;
 let baseImg = null;
@@ -18,12 +18,17 @@ let imgInput,
   statusEl;
 
 const LOOP_SECONDS = 8;
-const FPS = 24; // 24 fps para suavidade
+const FPS = 24;
+const NUM_FRAMES = LOOP_SECONDS * FPS; // 192 passos de fase
 
 let isPlaying = true;
 
+// fase atual (0..NUM_FRAMES-1)
+let framePhase = 0;
+
 // gravação de vídeo
 let recordingVideo = false;
+let recordingFrames = 0;
 let mediaRecorder = null;
 let recordedChunks = [];
 
@@ -34,6 +39,8 @@ function setup() {
   const cnv = createCanvas(540, 960); // 9:16
   canvas = cnv;
   cnv.parent("canvas-holder");
+
+  frameRate(FPS); // tenta manter 24 fps reais
 
   imgInput = document.getElementById("image-input");
   presetSelect = document.getElementById("preset");
@@ -62,10 +69,26 @@ function draw() {
     return;
   }
 
-  if (!isPlaying) return;
+  if (!isPlaying && !recordingVideo) return;
 
-  const tNorm = ((millis() / 1000) % LOOP_SECONDS) / LOOP_SECONDS;
+  // fase normalizada 0..1
+  const tNorm = framePhase / NUM_FRAMES;
   renderScene(tNorm);
+
+  // avança fase discretamente
+  framePhase = (framePhase + 1) % NUM_FRAMES;
+
+  // se estamos gravando, conta frames
+  if (recordingVideo) {
+    recordingFrames++;
+    if (recordingFrames >= NUM_FRAMES) {
+      // gravou exatamente um ciclo completo
+      if (mediaRecorder && mediaRecorder.state === "recording") {
+        mediaRecorder.stop();
+      }
+      recordingVideo = false;
+    }
+  }
 }
 
 // ------------------------------------------------------
@@ -121,7 +144,7 @@ function togglePlay() {
   isPlaying = !isPlaying;
   playToggleBtn.textContent = isPlaying ? "Pause" : "Play";
   if (isPlaying) loop();
-  else noLoop();
+  else if (!recordingVideo) noLoop();
 }
 
 // ------------------------------------------------------
@@ -153,30 +176,28 @@ function renderScene(tNorm) {
 
 // ------------------------------------------------------
 // PRESET 1 — ORBITAL OVERDRIVE
-// radical, com múltiplos ecos, rotação, zoom e "pulse" de luz
-// tudo baseado em harmônicos inteiros de 2π para loop perfeito.
+// harmônicos inteiros de t = 0..2π, vários ecos, zoom e rotação
 // ------------------------------------------------------
 function renderOrbitalOverdrive(tNorm, intensity) {
-  // t percorre 0..2π em 8s; todos os movimentos usam múltiplos inteiros de t
-  const t = tNorm * TWO_PI;
+  const t = tNorm * TWO_PI; // fase 0..2π
 
-  // zoom oscila em harmônicos 1 e 2 de t
+  // zoom com harmônicos 1 e 2
   const zoomBase =
     1.15 +
     0.20 * intensity * sin(t * 1.0) +
     0.10 * intensity * sin(t * 2.0);
 
-  // rotação pulsando com harmônico 3
+  // rotação com harmônico 3
   const angleBase = 0.35 * intensity * sin(t * 3.0);
 
-  // órbita do "centro" usando harmônicos 1 e 2
+  // órbita central com harmônicos 1 e 2
   const orbitRadius = 40 * intensity;
   const cxOffset = cos(t * 1.0) * orbitRadius;
   const cyOffset = sin(t * 2.0) * orbitRadius;
 
   imageMode(CENTER);
 
-  // camada base (mais limpa)
+  // camada base
   push();
   translate(width / 2 + cxOffset, height / 2 + cyOffset);
   rotate(angleBase);
@@ -199,12 +220,12 @@ function renderOrbitalOverdrive(tNorm, intensity) {
     const lx = cos(t * (1 + li)) * r;
     const ly = sin(t * (2 + li)) * r;
 
-    // variação de cor oscilando em t (sem random)
+    // variação de cor com harmônico 2
     const hueShift = 0.5 + 0.5 * sin(t * 2.0 + li);
     const rCol = 255;
     const gCol = 80 + 120 * hueShift;
     const bCol = 180 + 70 * (1.0 - hueShift);
-    const alpha = 90 - li * 20; // ecos mais distantes mais fracos
+    const alpha = 90 - li * 20;
 
     push();
     translate(width / 2 + lx, height / 2 + ly);
@@ -215,30 +236,20 @@ function renderOrbitalOverdrive(tNorm, intensity) {
     pop();
   }
 
-  pop(); // blendMode
+  pop(); // blendMode ADD
 
-  // pequenas faixas diagonais para dar sensação de streak / motion blur
+  // faixas diagonais para streak / motion blur (harmônico 4)
   const bands = 10;
   const bandH = height / bands;
   for (let i = 0; i < bands; i++) {
     const y = i * bandH;
-    const phase = t * 4.0 + i; // harmônico 4 de t
+    const phase = t * 4.0 + i;
     const shiftX = 20 * intensity * sin(phase);
 
     push();
     blendMode(ADD);
-    tint(255, 255 * 0.25); // bem sutil
-    image(
-      baseImg,
-      shiftX,
-      y,
-      width,
-      bandH,
-      0,
-      y,
-      width,
-      bandH
-    );
+    tint(255, 255 * 0.25);
+    image(baseImg, shiftX, y, width, bandH, 0, y, width, bandH);
     pop();
   }
 
@@ -246,12 +257,11 @@ function renderOrbitalOverdrive(tNorm, intensity) {
 }
 
 // ------------------------------------------------------
-// PRESET 2 — SIGNAL SPLITTER (antigo slices, leve ajuste depois)
+// PRESET 2 — SIGNAL SPLITTER (harmônico 2)
 // ------------------------------------------------------
 function renderSlices(tNorm, intensity) {
   const slices = 28;
   const sliceH = height / slices;
-
   const t = tNorm * TWO_PI;
 
   for (let i = 0; i < slices; i++) {
@@ -269,7 +279,7 @@ function renderSlices(tNorm, intensity) {
 }
 
 // ------------------------------------------------------
-// PRESET 3 — NEON MELT (ondas verticais)
+// PRESET 3 — NEON MELT (harmônico 2)
 // ------------------------------------------------------
 function renderMelt(tNorm, intensity) {
   const cols = 70;
@@ -278,7 +288,7 @@ function renderMelt(tNorm, intensity) {
 
   for (let i = 0; i < cols; i++) {
     const x = i * colW;
-    const wavePhase = t * 1.5 + i * 0.25; // harmônico 1.5 ainda fecha o loop
+    const wavePhase = t * 2.0 + i * 0.25; // harmônico 2 de t
     const maxOffset = 50 * intensity;
     const offsetY = sin(wavePhase) * maxOffset;
 
@@ -310,7 +320,7 @@ function drawVignette() {
 }
 
 // ------------------------------------------------------
-// Export VIDEO (8s, 24 fps, vertical 9:16)
+// Export VIDEO (um ciclo completo: NUM_FRAMES frames)
 // ------------------------------------------------------
 function startExportVideo() {
   if (!baseImg || recordingVideo) return;
@@ -346,7 +356,19 @@ function startExportVideo() {
 
   recordedChunks = [];
   recordingVideo = true;
-  statusEl.textContent = "Recording video… 8 seconds at 24 fps.";
+  recordingFrames = 0;
+
+  // garante que o ciclo começa do frame 0
+  framePhase = 0;
+  isPlaying = true;
+  loop();
+
+  statusEl.textContent =
+    "Recording video… capturing one full loop (" +
+    NUM_FRAMES +
+    " frames at " +
+    FPS +
+    " fps).";
 
   mediaRecorder.ondataavailable = (e) => {
     if (e.data && e.data.size > 0) {
@@ -365,17 +387,13 @@ function startExportVideo() {
     URL.revokeObjectURL(url);
 
     statusEl.textContent =
-      "Video exported (8s, 24 fps, vertical 9:16 " +
+      "Video exported (one seamless loop, " +
+      FPS +
+      " fps, vertical 9:16 " +
       ext.toUpperCase() +
       "). Ready for Spotify Canvas.";
     recordingVideo = false;
   };
 
   mediaRecorder.start();
-
-  setTimeout(() => {
-    if (mediaRecorder && mediaRecorder.state === "recording") {
-      mediaRecorder.stop();
-    }
-  }, LOOP_SECONDS * 1000);
 }
